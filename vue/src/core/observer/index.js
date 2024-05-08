@@ -23,7 +23,7 @@ export function toggleObserving (value) {
  */
 export class Observer {
     value //保存被观察的对象。
-    dep //一个 Dep 类的实例，用于依赖收集。;
+    dep //一个 Dep 类的实例，用于依赖收集;
     vmCount //记录将该对象作为根数据的 Vue 实例的数量
   
     constructor (value) {
@@ -124,7 +124,7 @@ export function defineReactive (
     //创建一个新的依赖对象 dep，用于跟踪属性的依赖关系。（依赖收集）
     const dep = new Dep()
   
-    //获取属性描述器
+    //获取属性描述符
     const property = Object.getOwnPropertyDescriptor(obj, key)
     if (property && property.configurable === false) {
         //如果属性已经存在并且不可配置，则直接返回。
@@ -136,7 +136,7 @@ export function defineReactive (
     const getter = property && property.get
     const setter = property && property.set
 
-    //属性不存在 setter 且传入参数只有两个时
+    //getter不存在 或者setter 且传入参数只有两个时
     if ((!getter || setter) && arguments.length === 2) {
       val = obj[key]
     }

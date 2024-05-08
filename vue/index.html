@@ -7,12 +7,21 @@
 </head>
 <script src="dist/bundle.js"></script>
 <body>
-    <div id="#app"></div>
+    <div id="app">
+        <p>姓名:{{username}}</p>
+    </div>
 </body>
 <script>
     console.log(1,MyVue);
-    // new MyVue({
-
-    // })
+    new MyVue({
+        template: `
+            <div>123</div>
+        `,
+        data: () => {
+            return {
+                username: "西瓜",
+            }
+        }
+    }).$mount('#app')
 </script>
 </html>

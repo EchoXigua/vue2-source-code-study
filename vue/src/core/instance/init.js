@@ -1,5 +1,5 @@
 import { initState } from './state'
-// import { initRender } from './render'
+import { initRender } from './render'
 // import { initEvents } from './events'
 // import { initLifecycle, callHook } from './lifecycle'
 // import { initProvide, initInjections } from './inject'
@@ -43,6 +43,12 @@ export function initMixin(Vue) {
     if (process.env.NODE_ENV !== 'production') {
       //如果在非生产环境中，调用 initProxy 方法，用于初始化代理对象，增强数据访问的响应性能。
       // initProxy(vm)
+      
+
+      //这里initProxy 在非生产环境下做了很多事，通过es6 的proxy来做了一些处理
+      //这里我们直接就把当前实例给到 _renderProxy 
+      vm._renderProxy = vm
+
     } else {
       //直接将 vm 实例赋值给 _renderProxy 属性。
 
@@ -71,14 +77,14 @@ export function initMixin(Vue) {
       //初始化事件系统
       // initEvents(vm)
       //初始化渲染相关的属性和方法
-      // initRender(vm)
+      initRender(vm)
 
       //执行钩子函数 beforeCreate，表示实例即将被创建。
       // callHook(vm, 'beforeCreate')
 
       //解析注入数据，该方法在初始化数据/属性之前调用。 这里是依赖注入
       // initInjections(vm) // resolve injections before data/props
-
+      debugger
       //初始化实例的状态（数据、属性、方法等）。
       initState(vm)
 

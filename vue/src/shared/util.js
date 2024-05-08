@@ -1,5 +1,13 @@
 //一些共享的工具函数
 
+/**
+ * 对象是引用类型，即如果你有一个指向对象的引用，你可以修改这个对象的属性.
+ * 在某些情况下，你可能需要一个空的对象，用于存储一些属性,但又不希望这个对象被修改。
+ * 为了防止这个空对象被修改，我们可以使用 Object.freeze() 方法来冻结这个对象，
+ * 使其成为一个不可变的对象。
+ */
+export const emptyObject = Object.freeze({})
+
 //是否未定义
 export function isUndef(v) {
   return v === undefined || v === null;
@@ -7,7 +15,7 @@ export function isUndef(v) {
 
 //是覅u已经定义（不为undefined 和 null）
 export function isDef(v) {
-  return v !== undefined || v !== null;
+  return v !== undefined && v !== null;
 }
 
 export function isTrue(v) {
@@ -16,6 +24,20 @@ export function isTrue(v) {
 
 export function isObject(obj) {
   return obj !== null && typeof obj === "object";
+}
+
+/**
+ * 检查一个值是否为原始类型
+ * 原始类型包括字符串、数字、布尔值和Symbol
+ */
+export function isPrimitive (value) {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    // $flow-disable-line
+    typeof value === 'symbol' ||
+    typeof value === 'boolean'
+  )
 }
 
 /**

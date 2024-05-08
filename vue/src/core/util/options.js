@@ -172,3 +172,9 @@ function normalizeProps (options, vm) {
       }
     }
   }
+
+
+
+export function resolveAsset() {
+  
+}

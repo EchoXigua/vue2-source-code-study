@@ -6,7 +6,8 @@ import {
     inBrowser,
 } from '../util/index'
 
-//定义了最大更新次数，用于防止无限循环更新。
+//定义了最大更新次数，一旦超过了这个次数，
+//就会停止继续更新，以防止出现无限循环更新的情况。
 export const MAX_UPDATE_COUNT = 100
   
 // Watcher 队列，用于存储待执行的 Watcher。
@@ -14,11 +15,29 @@ const queue = [] //queue: Array<Watcher>
 
 //用于存储 Watcher 的唯一标识符，以便快速判断 Watcher 是否已经在队列中。
 let has = {} //has : { [key: number]: ?true }
-//用于存储 Watcher 的唯一标识符，以及对应的更新次数，用于检测循环更新。
+
+/**
+ * 用于存储 Watcher 的唯一标识符，以及对应的更新次数，用于检测循环更新。
+ * 
+ * 当同一个 Watcher 被连续更新超过一定次数时，会认为发生了循环更新，并停止继续更新。
+ * 这个机制能够防止在同一次更新周期内出现 Watcher 之间的循环依赖导致的无限循环更新。
+ */
 let circular = {} //circular: { [key: number]: number }
 
 //表示当前是否有 Watcher 在等待刷新。
+//只有在没有 Watcher 在等待刷新的情况下才会触发下一次的更新操作，
+//这种机制避免了不必要的更新，提高了更新的效率。
 let waiting = false
+
+
+/**
+ * queue 与 flushing：
+ * Watchers 被推入到队列中，并在合适的时机进行刷新。
+ * 这种异步更新机制可以将多个 Watcher 的更新合并成一个更新任务，
+ * 减少了更新的频率，提高了执行的效率。
+ * 而 flushing 变量的存在能够确保在同一时间只有一个更新任务在执行，
+ * 避免了并发更新带来的问题。
+ */
 //表示当前是否正在执行 Watcher 队列的刷新操作。
 let flushing = false
 //表示当前 Watcher 队列的执行索引，用于控制 Watcher 的执行顺序。

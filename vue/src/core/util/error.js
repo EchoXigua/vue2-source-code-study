@@ -1,4 +1,4 @@
-
+import config from '../config'
 import { isPromise } from '@/shared/util'
 import { warn } from './debug'
 import { inBrowser } from './env'
