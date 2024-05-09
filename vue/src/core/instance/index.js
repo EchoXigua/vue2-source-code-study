@@ -1,5 +1,5 @@
 import { initMixin } from './init'
-
+import { lifecycleMixin } from './lifecycle'
 import { renderMixin } from './render'
 import { warn } from "../util/index";
 /**
@@ -18,6 +18,11 @@ function Vue(options) {
 //执行initMixin 时，会给Vue的原型上添加_init方法
 //init 方法会初始化vue实例，比如生命周期、事件处理、渲染、依赖注入、状态（data、methods等等）等
 initMixin(Vue)
+
+
+
+lifecycleMixin(Vue)
+
 
 //混入渲染相关的功能到 Vue 实例中(_render、nextTick)
 renderMixin(Vue)

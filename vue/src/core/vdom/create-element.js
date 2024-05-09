@@ -76,7 +76,6 @@ export function _createElement (
     normalizationType
   )  {
     if (isDef(data) && isDef((data).__ob__)) {
-        debugger
         //data 是一个观察者对象，此时会发出警告，并返回一个空的 VNode。
         process.env.NODE_ENV !== 'production' && warn(
             `Avoid using observed data object as vnode data: ${JSON.stringify(data)}\n` +
