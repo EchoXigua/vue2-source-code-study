@@ -12,6 +12,16 @@ import {
   invokeWithErrorHandling,
 } from "../util/index";
 
+export let activeInstance = null;
+
+export function setActiveInstance(vm) {
+  const prevActiveInstance = activeInstance;
+  activeInstance = vm;
+  return () => {
+    activeInstance = prevActiveInstance;
+  };
+}
+
 /**
  *  这个函数主要用于处理 Vue 在组件实例挂载时调用的函数
  *
@@ -164,7 +174,95 @@ export function initLifecycle(vm) {
   vm._isBeingDestroyed = false;
 }
 
-export function lifecycleMixin(vm) {}
+/**
+ * 这段代码是 Vue 的生命周期相关方法的混入（mixin），
+ * 它们会被注入到 Vue 实例的原型链上，以便实例可以直接调用这些方法。
+ *
+ * @param {*} Vue
+ */
+export function lifecycleMixin(Vue) {
+  /**
+   * 用于更新组件的 DOM 结构
+   *
+   * @param {VNode} vnode 虚拟 DOM 节点
+   * @param {?boolean} hydrating
+   */
+  Vue.prototype._update = function (vnode, hydrating) {
+    //保存vue 实例
+    const vm = this;
+
+    //保存当前 Vue 实例的 DOM 元素
+    const prevEl = vm.$el;
+    //保存当前 Vue 实例的虚拟节点 方便后续对比和更新
+    const prevVnode = vm._vnode;
+
+    //将当前实例设置为活动实例，并返回一个函数用于恢复之前的活动实例。
+    const restoreActiveInstance = setActiveInstance(vm);
+
+    //将传入的新虚拟节点 vnode 赋值给当前实例的 _vnode 属性，以便后续更新时使用。
+    vm._vnode = vnode;
+    /**
+     * Vue 中，__patch__ 方法是根据所使用的渲染后端（比如浏览器环境下使用的是 web 渲染后端）
+     * 在入口点（如 mount 方法）动态注入的。
+     *  如 web 端 在platforms/web/runtime/index.js 中注入的
+     *
+     * 根据不同的渲染后端，__patch__ 方法的实现可能会有所不同，
+     * 但它们的作用都是将虚拟 DOM 转换为真实 DOM，
+     * 并将其挂载到指定的容器元素上，实现页面的渲染。
+     */
+
+    //vue2的 diff 算法！
+
+    //判断之前是否存在虚拟节点
+    if (!prevVnode) {
+      // initial render
+      //如果不存在，则是初次渲染
+      //调用 vm.__patch__ 方法将 vm.$el 渲染成新的虚拟节点 vnode
+      vm.$el = vm.__patch__(vm.$el, vnode, hydrating, false /* removeOnly */);
+    } else {
+      // 如果存在，则是更新
+      //通过 __patch__ 方法对比之前的虚拟节点和新的虚拟节点。
+      vm.$el = vm.__patch__(prevVnode, vnode);
+    }
+
+    //将当前实例恢复为之前的活动实例。
+    restoreActiveInstance();
+
+    // update __vue__ reference
+
+    if (prevEl) {
+      //如果之前的 DOM 元素存在
+      //将其上的 __vue__ 引用设为 null，解除对旧实例的引用。
+      prevEl.__vue__ = null;
+    }
+
+    if (vm.$el) {
+      //如果更新后的 DOM 元素存在
+      //则将其上的 __vue__ 引用指向当前实例，确保 Vue 实例和 DOM 元素之间的关联。
+      vm.$el.__vue__ = vm;
+    }
+
+    //当前组件实例是高阶组件（Higher Order Component，HOC）时，确保更新其父组件的 $el 属性。
+
+    /**
+     * 在 Vue 中，高阶组件是指接受一个组件作为参数，并返回一个新组件的函数。
+     * 这种组件通常用于提供复用的逻辑、功能或状态管理等。
+     * 在这种情况下，父组件可能是一个 HOC，而当前组件实例则是由这个 HOC 返回的新组件。
+     *
+     * React 中大量使用了HOC，如redux中等
+     */
+    if (vm.$vnode && vm.$parent && vm.$vnode === vm.$parent._vnode) {
+      //通过 vm.$vnode 来判断当前组件是否有父虚拟节点（即是否被包裹在高阶组件中）
+      //检查 vm.$parent 是否存在父组件
+      //并且该父组件的虚拟节点 _vnode 和当前组件的 $vnode 相等。
+
+      //todo 不懂这里的代码
+      vm.$parent.$el = vm.$el;
+    }
+
+    // updated 钩子是由调度器调用的，用于确保在父组件的 updated 钩子中也能正确更新子组件。
+  };
+}
 
 /**
  *

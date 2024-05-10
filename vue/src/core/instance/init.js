@@ -71,7 +71,7 @@ export function initMixin(Vue) {
     //初始化实例的生命周期
     initLifecycle(vm);
     //初始化事件系统
-    initEvents(vm);
+    // initEvents(vm);
     //初始化渲染相关的属性和方法
     initRender(vm);
 
