@@ -87,7 +87,7 @@ export function initMixin(Vue) {
     // initProvide(vm) // resolve provide after data/props
 
     //执行钩子函数 created，表示实例已经被创建。
-    // callHook(vm, 'created')
+    callHook(vm, "created");
 
     //如果配置了挂载元素，则调用 $mount 方法挂载到指定的元素上。
     if (vm.$options.el) {
