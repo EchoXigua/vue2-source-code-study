@@ -76,7 +76,7 @@ export function initMixin(Vue) {
     initRender(vm);
 
     //执行钩子函数 beforeCreate，表示实例即将被创建。
-    // callHook(vm, 'beforeCreate')
+    callHook(vm, "beforeCreate");
 
     //解析注入数据，该方法在初始化数据/属性之前调用。 这里是依赖注入
     // initInjections(vm) // resolve injections before data/props

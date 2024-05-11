@@ -1,27 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My-Vue2-study</title>
-</head>
-<script src="dist/bundle.js"></script>
-<body>
+  </head>
+  <script src="dist/bundle.js"></script>
+  <body>
     <div id="app">
-        <p>姓名:{{username}}</p>
+      <p>姓名:{{username}}</p>
     </div>
-</body>
-<script>
-    console.log(1,MyVue);
+  </body>
+  <script>
+    console.log(1, MyVue);
     new MyVue({
-        template: `
+      template: `
             <div>123</div>
         `,
-        data: () => {
-            return {
-                username: "西瓜",
-            }
-        }
-    }).$mount('#app')
-</script>
+      data: () => {
+        return {
+          username: "西瓜",
+        };
+      },
+      beforeCreate() {
+        console.log("beforeCreate");
+      },
+    }).$mount("#app");
+  </script>
 </html>

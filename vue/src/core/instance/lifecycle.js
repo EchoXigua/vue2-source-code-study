@@ -177,6 +177,7 @@ export function initLifecycle(vm) {
 /**
  * 这段代码是 Vue 的生命周期相关方法的混入（mixin），
  * 它们会被注入到 Vue 实例的原型链上，以便实例可以直接调用这些方法。
+ * 这些方法主要负责 Vue 实例的更新和销毁过程，保证了组件的生命周期行为的正确执行
  *
  * @param {*} Vue
  */
@@ -262,6 +263,100 @@ export function lifecycleMixin(Vue) {
 
     // updated 钩子是由调度器调用的，用于确保在父组件的 updated 钩子中也能正确更新子组件。
   };
+
+  //用于强制重新渲染组件
+  Vue.prototype.$forceUpdate = function () {
+    const vm = this;
+    if (vm._watcher) {
+      //实例有观察者对象 _watcher，则调用其 update 方法进行强制更新。
+      vm._watcher.update();
+    }
+  };
+
+  //Vue 实例销毁的过程
+  Vue.prototype.$destroy = function () {
+    //保存当前实例
+    const vm = this;
+    if (vm._isBeingDestroyed) {
+      //检查实例是否正在被销毁。如果正在销毁，则直接返回，避免重复销毁
+      return;
+    }
+
+    //调用 beforeDestroy 生命周期钩子函数
+    callHook(vm, "beforeDestroy");
+
+    //表示实例正在被销毁。
+    vm._isBeingDestroyed = true;
+
+    //获取当前实例的父组件
+    const parent = vm.$parent;
+    if (parent && !parent._isBeingDestroyed && !vm.$options.abstract) {
+      //如果实例有父级，并且父级没有被销毁
+      //并且当前实例不是一个抽象组件
+      //则将当前实例从父级的 $children 数组中移除。
+      remove(parent.$children, vm);
+    }
+
+    //清理实例的观察者
+    //Vue 实例会创建一个根 Watcher，它负责侦听实例渲染函数中引用的所有响应式数据。
+    //在销毁实例时，需要调用根 Watcher 的 teardown() 方法来停止侦听，并释放相关资源。
+    if (vm._watcher) {
+      //调用 teardown() 方法来销毁根观察者
+      vm._watcher.teardown();
+    }
+
+    //除了根 Watcher 外，Vue 实例可能还创建了其他 Watcher 对象，
+    //例如用户手动创建的计算属性的 Watcher，或者通过 watch 选项创建的 Watcher。
+    //watchers 是一个数组，里面存放着所有关联到当前 Vue 实例的 Watcher 对象。
+    let i = vm._watchers.length;
+    //遍历所有的观察者（_watchers）
+    while (i--) {
+      //逐个调用 teardown() 方法销毁它们。
+      vm._watchers[i].teardown();
+    }
+
+    // remove reference from data ob
+    // frozen object may not have observer.
+    /**
+     * 在 Vue 的响应式系统中，Observer 对象会为每个被观察的数据对象添加一个 vmCount 属性，
+     * 于跟踪当前有多少个 Vue 实例正在观察该数据对象。
+     * 目的是为了在销毁 Vue 实例时，能够正确地处理冻结对象（Frozen Object）。
+     */
+    if (vm._data.__ob__) {
+      //如果实例的数据对象有观察者，将实例的 vmCount 减一，以便正确处理冻结对象。
+      vm._data.__ob__.vmCount--;
+    }
+
+    //这是在实例销毁执行的最后一个生命周期钩子。
+    //将 _isDestroyed 标志设置为 true，表示实例已被销毁。
+    vm._isDestroyed = true;
+    //使用 __patch__ 方法将实例的虚拟 DOM 树（_vnode）置为 null，从而清理渲染树。
+    vm.__patch__(vm._vnode, null);
+    //调用 destroyed 生命周期钩子函数，表示实例已经被销毁。
+    callHook(vm, "destroyed");
+
+    //关闭实例的所有事件监听器。
+    vm.$off();
+    //移除实例的 $el 对象上的 __vue__ 引用。
+    if (vm.$el) {
+      vm.$el.__vue__ = null;
+    }
+
+    //
+    /**
+     * 这段代码目的是解除 Vue 实例和其父 VNode 之间的引用关系，以便正确地释放内存并避免内存泄漏
+     *
+     * 在 Vue 中，每个组件实例都有一个 $vnode 属性，该属性指向当前组件在父组件中的占位符节点（VNode）
+     * 这个占位符节点是在组件被创建时由父组件创建的。当一个 Vue 实例被销毁时，
+     * 需要确保它和其父 VNode 之间的引用关系被正确地解除，以便垃圾回收器能够回收它们所占用的内存。
+     *
+     */
+    //如果实例有父虚拟节点（$vnode），则将其父节点设置为 null，解除了 Vue 实例和其父 VNode 之间的引用关系
+    //使得它们可以被垃圾回收器回收。
+    if (vm.$vnode) {
+      vm.$vnode.parent = null;
+    }
+  };
 }
 
 /**
@@ -282,6 +377,9 @@ export function callHook(vm, hook) {
    *
    */
   pushTarget();
+  //这里的hook 会被处理成数组，因为有mixin 可以在当前组件中混入生命周期
+  //所以vue 会把hook包装成数组的，且按顺序来执行
+  //vue3中通过 onMouted(()=>{}) 等组合式api 可以在组件内部定义多个，也是会包装成数组
   const handlers = vm.$options[hook];
   const info = `${hook} hook`;
   if (handlers) {
