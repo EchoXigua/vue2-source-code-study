@@ -1,3 +1,9 @@
+/**
+ * Vue 虚拟dom（基于Snabbdom ）patch 方法 由 Simon Friis Vindum 开发
+ */
+import VNode, { cloneVNode } from "./vnode";
+import { registerRef } from "./modules/ref";
+
 import { isTextInputType } from "@platforms/web/util/element";
 
 import {
@@ -190,6 +196,192 @@ export function createPatchFunction(backend) {
   }
 
   /**
+   * 用于创建组件，并将组件挂载到 DOM 中。
+   *
+   * @param {*} vnode
+   * @param {*} insertedVnodeQueue
+   * @param {*} parentElm
+   * @param {*} refElm
+   * @returns
+   */
+  function createComponent(vnode, insertedVnodeQueue, parentElm, refElm) {
+    let i = vnode.data;
+    if (isDef(i)) {
+      //检查vnode.data 是否已定义
+
+      //如果定义了，它会进一步检查是否有 vnode.componentInstance（组件实例）
+      //并且 keepAlive 属性被设置为 true，以确定是否需要重新激活组件。
+      const isReactivated = isDef(vnode.componentInstance) && i.keepAlive;
+      if (isDef((i = i.hook)) && isDef((i = i.init))) {
+        //如果 hook 存在，且 init 存在，则调用 init 钩子函数来初始化组件实例。
+        //vnode 是当前虚拟节点，false 表示不处于服务端渲染状态。
+        i(vnode, false /* hydrating */);
+      }
+
+      // after calling the init hook, if the vnode is a child component
+      // it should've created a child instance and mounted it. the child
+      // component also has set the placeholder vnode's elm.
+      // in that case we can just return the element and be done.
+      /**
+       * 解释在调用初始化钩子后的操作:
+       * 如果 vnode 是一个子组件，那么在调用初始化钩子时，该子组件应该已经创建了一个子实例并将其挂载。
+       * 此时，子组件还会设置占位符 vnode 的 elm（DOM 元素）属性。因此，在这种情况下，
+       * 函数可以直接返回该元素并完成操作，因为子组件已经通过自身的逻辑完成了挂载。
+       */
+      //初始化钩子被调用后，如果 vnode.componentInstance 已定义，
+      //说明组件实例已经创建并挂载，此时函数会执行以下操作：
+      if (isDef(vnode.componentInstance)) {
+        //对组件进行初始化。
+        initComponent(vnode, insertedVnodeQueue);
+        //将组件的 elm（DOM 元素）插入到父节点中，位置由 parentElm 和 refElm 控制。
+        insert(parentElm, vnode.elm, refElm);
+        if (isTrue(isReactivated)) {
+          //如果 isReactivated 为 true，表示组件已被重新激活，
+          //调用 reactivateComponent 函数重新激活组件。
+          reactivateComponent(vnode, insertedVnodeQueue, parentElm, refElm);
+        }
+
+        //函数返回 true 表示组件创建成功，并已被挂载到 DOM 中。
+        return true;
+      }
+    }
+  }
+
+  /**
+   * 这个函数用于初始化组件。
+   *
+   * @param {*} vnode
+   * @param {*} insertedVnodeQueue
+   */
+  function initComponent(vnode, insertedVnodeQueue) {
+    //它首先检查是否有挂起的插入操作
+    if (isDef(vnode.data.pendingInsert)) {
+      //如果有，就将这些操作加入到插入队列 insertedVnodeQueue 中
+      insertedVnodeQueue.push.apply(
+        insertedVnodeQueue,
+        vnode.data.pendingInsert
+      );
+      //，并清空挂起的插入操作。
+      vnode.data.pendingInsert = null;
+    }
+
+    //将占位符 vnode 的 elm 属性设置为组件实例的根 DOM 元素 $el。
+    vnode.elm = vnode.componentInstance.$el;
+    if (isPatchable(vnode)) {
+      //如果该 vnode 可以进行修补
+      //调用 invokeCreateHooks 函数执行创建钩
+      invokeCreateHooks(vnode, insertedVnodeQueue);
+      //调用 setScope 函数设置作用域
+      setScope(vnode);
+    } else {
+      //如果该 vnode 不能进行修补，则只注册组件的引用并将其加入到插入队列中。
+      registerRef(vnode);
+      insertedVnodeQueue.push(vnode);
+    }
+  }
+
+  /**
+   * 用于重新激活组件,当组件被保持活动状态并重新渲染时使用
+   * keepalive
+   *
+   * @param {*} vnode 虚拟节点
+   * @param {*} insertedVnodeQueue 已插入节点队列
+   * @param {*} parentElm 父元素
+   * @param {*} refElm 参考元素
+   */
+  function reactivateComponent(vnode, insertedVnodeQueue, parentElm, refElm) {
+    let i;
+    // hack for #4339: a reactivated component with inner transition
+    // does not trigger because the inner node's created hooks are not called
+    // again. It's not ideal to involve module-specific logic in here but
+    // there doesn't seem to be a better way to do it.
+
+    /**
+     * 这段注释描述了一个技巧，用于解决重新激活的带有内部过渡的组件可能不会触发的问题。
+     * 问题出在内部节点的创建钩子未再次调用，因此在这里使用了一种“破解”手段来解决这个问题。
+     * 尽管这种做法不太理想，因为它涉及到模块特定的逻辑，但目前似乎没有更好的解决办法。
+     *
+     *
+     * Vue 解决这个问题的方式是通过确保重新激活的组件内部节点的创建钩子会被再次调用，
+     * 以确保内部过渡能够正确触发。Vue 通过在组件实例上设置一个标志来跟踪组件是否被重新激活，
+     * 然后在重新激活时，触发内部节点的创建钩子。
+     */
+
+    let innerNode = vnode;
+
+    //通过一个 while 循环获取组件内部的节点，直到找到不再有子组件实例的节点。
+    //目的是尝试找到内部节点，并检查它是否具有与过渡相关的数据。
+    //如果内部节点有过渡数据，它会触发激活钩子，以确保内部过渡能够正确地触发。
+    while (innerNode.componentInstance) {
+      innerNode = innerNode.componentInstance._vnode;
+      if (isDef((i = innerNode.data)) && isDef((i = i.transition))) {
+        //定义了data 且节点包含了过渡相关的数据
+
+        //遍历 cbs.activate 中的钩子函数
+        for (i = 0; i < cbs.activate.length; ++i) {
+          cbs.activate[i](emptyNode, innerNode);
+        }
+        //并将该节点添加到 insertedVnodeQueue 中，表示它已经被激活。
+        insertedVnodeQueue.push(innerNode);
+        break;
+      }
+    }
+    //将虚拟节点插入到 DOM 中，这个过程与新创建的组件不同，
+    //重新激活的 keep-alive 组件不会自行插入，而是在此处手动插入。
+    insert(parentElm, vnode.elm, refElm);
+  }
+
+  function insert(parent, elm, ref) {
+    if (isDef(parent)) {
+      if (isDef(ref)) {
+        if (nodeOps.parentNode(ref) === parent) {
+          nodeOps.insertBefore(parent, elm, ref);
+        }
+      } else {
+        nodeOps.appendChild(parent, elm);
+      }
+    }
+  }
+
+  /**
+   * 用于检查一个 vnode 是否可以进行修补(patchable)
+   *
+   * @param {*} vnode
+   * @returns
+   */
+  function isPatchable(vnode) {
+    //通过不断访问组件实例的 _vnode 属性，直到找到一个不是组件的 vnode。
+    while (vnode.componentInstance) {
+      vnode = vnode.componentInstance._vnode;
+    }
+    //它检查这个 vnode 是否定义了 tag 属性，
+    //如果定义了返回 true，表示该 vnode 可以进行修补。
+    return isDef(vnode.tag);
+  }
+
+  /**
+   * 用于调用创建钩子函数。
+   *
+   * @param {*} vnode
+   * @param {*} insertedVnodeQueue
+   */
+  function invokeCreateHooks(vnode, insertedVnodeQueue) {
+    //它遍历 cbs.create 数组，对每个元素调用钩子函数
+    for (let i = 0; i < cbs.create.length; ++i) {
+      //传入一个空节点 emptyNode 和当前 vnode
+      cbs.create[i](emptyNode, vnode);
+    }
+
+    i = vnode.data.hook; // Reuse variable
+    //检查 vnode 的 data.hook 是否定义
+    if (isDef(i)) {
+      //如果定义了，就进一步检查其中的 create 和 insert 方法是否定义,并分别调用它们
+      if (isDef(i.create)) i.create(emptyNode, vnode);
+      if (isDef(i.insert)) insertedVnodeQueue.push(vnode);
+    }
+  }
+
+  /**
    * 这个函数的目的是确保节点在渲染时，能够正确地应用作用域
    *
    * @param {*} vnode
@@ -233,6 +425,39 @@ export function createPatchFunction(backend) {
   }
 
   /**
+   * 这个函数用于向父元素中添加一组 VNode 的子节点
+   *
+   * @param {*} parentElm 父元素
+   * @param {*} refElm 参考元素
+   * @param {*} vnodes 一组 VNode
+   * @param {*} startIdx 起始索引
+   * @param {*} endIdx 结束索引
+   * @param {*} insertedVnodeQueue 一个插入 VNode 队列
+   */
+  function addVnodes(
+    parentElm,
+    refElm,
+    vnodes,
+    startIdx,
+    endIdx,
+    insertedVnodeQueue
+  ) {
+    //这是一个 for 循环，从起始索引开始遍历到结束索引
+    for (; startIdx <= endIdx; ++startIdx) {
+      //在循环体内，我们调用 createElm 函数来为每个 VNode 创建对应的 DOM 元素并添加到父元素中
+      createElm(
+        vnodes[startIdx],
+        insertedVnodeQueue,
+        parentElm,
+        refElm,
+        false,
+        vnodes,
+        startIdx
+      );
+    }
+  }
+
+  /**
    * 用于调用销毁钩子函数，在销毁虚拟节点时，依次调用其关联的销毁钩子函数，
    * 并递归地调用子节点的销毁函数。
    *
@@ -257,6 +482,257 @@ export function createPatchFunction(backend) {
     if (isDef((i = vnode.children))) {
       for (j = 0; j < vnode.children.length; ++j) {
         invokeDestroyHook(vnode.children[j]);
+      }
+    }
+  }
+
+  /**
+   * 这个函数用于从父元素中移除一组 VNode 的子节点
+   *
+   * @param {*} vnodes 一组 VNode
+   * @param {*} startIdx 起始索引
+   * @param {*} endIdx 结束索引
+   */
+  function removeVnodes(vnodes, startIdx, endIdx) {
+    //这是一个 for 循环，从起始索引开始遍历到结束索引。
+    for (; startIdx <= endIdx; ++startIdx) {
+      //获取子节点
+      const ch = vnodes[startIdx];
+      if (isDef(ch)) {
+        //当前 VNode 是否已定义
+        if (isDef(ch.tag)) {
+          //如果当前 VNode 是一个元素节点
+          //该函数用于从 DOM 中移除当前 VNode 对应的元素节点，并在移除时触发相应的移除钩子。
+          removeAndInvokeRemoveHook(ch);
+          //该函数用于触发当前 VNode 的销毁钩子，用于在删除之前执行一些清理工作。
+          invokeDestroyHook(ch);
+        } else {
+          //如果当前 VNode 是一个文本节点，
+          //我们直接调用 removeNode 函数，将其对应的 DOM 节点从 DOM 树中移除。
+          removeNode(ch.elm);
+        }
+      }
+    }
+  }
+
+  function removeAndInvokeRemoveHook(vnode, rm) {
+    if (isDef(rm) || isDef(vnode.data)) {
+      let i;
+      const listeners = cbs.remove.length + 1;
+      if (isDef(rm)) {
+        // we have a recursively passed down rm callback
+        // increase the listeners count
+        rm.listeners += listeners;
+      } else {
+        // directly removing
+        rm = createRmCb(vnode.elm, listeners);
+      }
+      // recursively invoke hooks on child component root node
+      if (
+        isDef((i = vnode.componentInstance)) &&
+        isDef((i = i._vnode)) &&
+        isDef(i.data)
+      ) {
+        removeAndInvokeRemoveHook(i, rm);
+      }
+      for (i = 0; i < cbs.remove.length; ++i) {
+        cbs.remove[i](vnode, rm);
+      }
+      if (isDef((i = vnode.data.hook)) && isDef((i = i.remove))) {
+        i(vnode, rm);
+      } else {
+        rm();
+      }
+    } else {
+      removeNode(vnode.elm);
+    }
+  }
+
+  function removeNode(el) {
+    //拿到当前元素的父节点
+    const parent = nodeOps.parentNode(el);
+    // element may have already been removed due to v-html / v-text
+    //元素可能已经被v-html / v-text删除了
+    if (isDef(parent)) {
+      //检查父节点是否已定义，以确保当前节点仍然存在于 DOM 树中。
+      //将当前节点从其父节点中移除。
+      //这是 DOM 操作的一部分，removeChild 方法由浏览器原生提供，用于移除节点
+      nodeOps.removeChild(parent, el);
+    }
+  }
+
+  /**
+   * 这个函数是 Virtual DOM 中非常重要的一部分，负责处理新旧 VNode 的差异，并将这些差异应用到真实的 DOM 元素上。
+   * diff 算法 麻烦的地方主要在 更新子节点中（updateChildren）
+   *
+   * @param {*} oldVnode 旧节点，即需要更新的节点
+   * @param {*} vnode 新节点，即用于更新的节点。
+   * @param {*} insertedVnodeQueue 已经插入节点的队列，节点在 DOM 中已经被插入
+   * @param {*} ownerArray 表示旧 VNode 所属的数组，用于在复用 VNode 时更新数组中的对应元素。
+   * @param {*} index 表示旧 VNode 在数组中的索引，用于在复用 VNode 时更新数组中的对应元素
+   * @param {*} removeOnly 表示是否仅仅需要移除节点，而不需要进行更新
+   * @returns
+   */
+  function patchVnode(
+    oldVnode,
+    vnode,
+    insertedVnodeQueue,
+    ownerArray,
+    index,
+    removeOnly
+  ) {
+    //如果新旧节点相同 直接返回
+    if (oldVnode === vnode) {
+      return;
+    }
+
+    if (isDef(vnode.elm) && isDef(ownerArray)) {
+      //新旧 VNode 对象中都定义了 elm 属性并且有一个所有者数组 ownerArray，则说明这个 VNode 对象是被复用的。
+      //会克隆新的 VNode 对象并更新 ownerArray 中对应位置的元素。
+      vnode = ownerArray[index] = cloneVNode(vnode);
+    }
+
+    //新的 VNode 的 elm 属性设置为旧 VNode 的 elm 属性,确保在更新期间保持相同的 DOM 元素引用
+    const elm = (vnode.elm = oldVnode.elm);
+
+    if (isTrue(oldVnode.isAsyncPlaceholder)) {
+      //检查旧 VNode 是否为异步占位符,如果是，则需要进一步处理
+      if (isDef(vnode.asyncFactory.resolved)) {
+        //新 VNode 的异步工厂已经被解析(即异步组件已经加载完成)调用 hydrate 方法将新的 VNode 水合到 DOM 中。
+        hydrate(oldVnode.elm, vnode, insertedVnodeQueue);
+      } else {
+        //如果新 VNode 的异步工厂尚未解析，则将新 VNode 标记为异步占位符
+        //并返回，暂时不做任何进一步处理。
+        vnode.isAsyncPlaceholder = true;
+      }
+      return;
+    }
+
+    // reuse element for static trees.
+    // note we only do this if the vnode is cloned -
+    // if the new node is not cloned it means the render functions have been
+    // reset by the hot-reload-api and we need to do a proper re-render.
+
+    /**
+     * 这段注释解释了在重用静态树元素时的一些注意事项：
+     *
+     * 仅当新的 VNode 被克隆时，才重用元素。这是因为如果新的 VNode 没有被克隆，
+     *    那么很可能是由于热重载 API 重置了渲染函数，此时我们需要执行完整的重新渲染，而不是重用元素。
+     *
+     * 当新的 VNode 被克隆时，我们可以安全地假设其结构与旧的 VNode 相同，
+     *    因此可以尝试重用元素，避免不必要的 DOM 操作和性能开销。
+     */
+
+    //以下代码用于优化静态树的渲染：
+    if (
+      isTrue(vnode.isStatic) &&
+      isTrue(oldVnode.isStatic) &&
+      vnode.key === oldVnode.key &&
+      (isTrue(vnode.isCloned) || isTrue(vnode.isOnce))
+    ) {
+      //如果新旧 VNode 都被标记为静态,并且它们具有相同的键值
+      //并且新 VNode 被克隆或者标记为只渲染一次（isOnce），则可以重用旧的组件实例。
+      vnode.componentInstance = oldVnode.componentInstance;
+      return;
+    }
+
+    //下面代码用于调用预补丁钩子函数
+    let i; //用于临时存储钩子函数。
+    //将 vnode 的 data 属性赋给一个常量 data，以便后续使用。
+    const data = vnode.data;
+    if (isDef(data) && isDef((i = data.hook)) && isDef((i = i.prepatch))) {
+      //检查了 vnode 的 data 属性是否存在，data.hook 是否存在，
+      //并且 hook 属性中是否定义了 prepatch 钩子函数。
+      //如果这些条件都成立，调用 prepatch 钩子函数，传入旧的 vnode 和新的 vnode
+
+      //prepatch 钩子函数在两个 VNode 更新之前被调用，允许开发者在更新前执行一些逻辑。
+      i(oldVnode, vnode);
+    }
+
+    /*  以下代码是 Virtual DOM 中用于更新 VNode 的核心部分 !!! */
+
+    //旧的 VNode的子节点存储在 oldCh
+    const oldCh = oldVnode.children;
+    //新的 VNode 的子节点存储在 ch,方便后续处理。
+    const ch = vnode.children;
+
+    //检查了 vnode 的 data 属性是否存在，并且 vnode 是否可以进行 patch
+    if (isDef(data) && isPatchable(vnode)) {
+      //遍历 cbs（callbacks）对象中的 update 数组,并依次调用其中的回调函数
+      //传入旧的 vnode 和新的 vnode ,这些回调函数主要用于执行更新操作。
+      for (i = 0; i < cbs.update.length; ++i) cbs.update[i](oldVnode, vnode);
+      //检查 vnode 的 hook 属性是否存在，并且 hook 中是否定义了 update 钩子函数。
+      //如果是，则调用 update 钩子函数，传入旧的 vnode 和新的 vnode 作为参数
+      //这个钩子函数与前面的回调函数类似，用于执行更新操作。
+      if (isDef((i = data.hook)) && isDef((i = i.update))) i(oldVnode, vnode);
+    }
+
+    if (isUndef(vnode.text)) {
+      //新节点 的文本内容不存在
+      if (isDef(oldCh) && isDef(ch)) {
+        //检查旧的 VNode 和新的 VNode 是否都有子节点
+
+        //子节点不相同，调用updateChildren来更新子节点。
+        if (oldCh !== ch)
+          updateChildren(elm, oldCh, ch, insertedVnodeQueue, removeOnly);
+      } else if (isDef(ch)) {
+        //进入到这里，说明新旧 有一个不存在
+        //只有新的 VNode 有子节点
+
+        //在非生产环境下，我们调用 checkDuplicateKeys 函数来检查新的子节点列表中是否存在重复的 key。
+        // if (process.env.NODE_ENV !== "production") {
+        //   checkDuplicateKeys(ch);
+        // }
+
+        //如果旧的 VNode 有文本内容，则清空当前元素的文本内容。
+        if (isDef(oldVnode.text)) nodeOps.setTextContent(elm, "");
+        //调用 addVnodes 函数来添加新的子节点到当前元素中。
+        addVnodes(elm, null, ch, 0, ch.length - 1, insertedVnodeQueue);
+      } else if (isDef(oldCh)) {
+        //如果只有旧的 VNode 有子节点，说明执行的是删除
+        //调用 removeVnodes 函数来移除旧的子节点。
+        removeVnodes(oldCh, 0, oldCh.length - 1);
+      } else if (isDef(oldVnode.text)) {
+        //说明新旧都没有子节点
+        //如果旧的 VNode 有文本内容，则清空当前元素的文本内容。
+        nodeOps.setTextContent(elm, "");
+      }
+    } else if (oldVnode.text !== vnode.text) {
+      //新节点文本存在，处理 VNode 的文本内容发生改变
+      //直接将当前元素的文本内容设置为新的 VNode 的文本内容。
+      nodeOps.setTextContent(elm, vnode.text);
+    }
+
+    //检查 vnode 的 data 属性是否存在
+    if (isDef(data)) {
+      if (isDef((i = data.hook)) && isDef((i = i.postpatch)))
+        //检查 vnode 的 hook 属性中是否定义了 postpatch 钩子函数
+        //postpatch 钩子函数在 VNode 更新之后被调用，用于执行一些额外的操作。
+        i(oldVnode, vnode);
+    }
+  }
+
+  /**
+   * 这个函数的目的是在适当的时机调用节点的插入钩子，这些钩子在节点被插入到 DOM 树中时执行。
+   *
+   * @param {*} vnode
+   * @param {*} queue
+   * @param {*} initial
+   */
+  function invokeInsertHook(vnode, queue, initial) {
+    //延迟组件根节点的插入钩子，在元素真正插入后调用它们
+    if (isTrue(initial) && isDef(vnode.parent)) {
+      //如果 initial 参数为 true，表示这是初始插入，且当前节点有父节点（即不是根节点）
+
+      //那么它将把插入队列存储在父节点的 data.pendingInsert 属性中。
+      //这样做的目的是为了延迟插入操作，直到元素真正被插入到 DOM 树中。
+      vnode.parent.data.pendingInsert = queue;
+    } else {
+      //如果 initial 参数为 false 或者节点没有父节点
+
+      //遍历 queue 数组中的每个节点，依次调用它们的插入钩子。
+      for (let i = 0; i < queue.length; ++i) {
+        queue[i].data.hook.insert(queue[i]);
       }
     }
   }
