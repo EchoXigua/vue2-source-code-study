@@ -562,6 +562,353 @@ export function createPatchFunction(backend) {
   }
 
   /**
+   * 这个函数是 Vue 2 中用于更新子节点的核心方法之一，涉及到虚拟 DOM 的 diff 算法
+   * 通过双指针方法对比新旧节点数组，尽量复用和移动现有节点，从而高效地更新 DOM。
+   *
+   * @param {*} parentElm  父节点的 DOM 元素
+   * @param {*} oldCh 旧的子节点数组
+   * @param {*} newCh 新的子节点数组
+   * @param {*} insertedVnodeQueue 插入的虚拟节点队列
+   * @param {*} removeOnly 一个标志，主要用于 <transition-group>，确保在移除过渡期间元素保持正确的相对位置。
+   */
+  function updateChildren(
+    parentElm,
+    oldCh,
+    newCh,
+    insertedVnodeQueue,
+    removeOnly
+  ) {
+    //旧子节点数组的开始索引
+    let oldStartIdx = 0;
+    //新子节点数组的开始索引
+    let newStartIdx = 0;
+    //旧子节点数组的结束索引
+    let oldEndIdx = oldCh.length - 1;
+    //旧子节点数组的第一个节点
+    let oldStartVnode = oldCh[0];
+    //旧子节点数组的最后一个节点
+    let oldEndVnode = oldCh[oldEndIdx];
+    //新子节点数组的结束索引
+    let newEndIdx = newCh.length - 1;
+    //新子节点数组的第一个节点
+    let newStartVnode = newCh[0];
+    //新子节点数组的最后一个节点
+    let newEndVnode = newCh[newEndIdx];
+
+    //上面那些变量用于保存当前正在比较的旧节点和新节点。
+
+    //辅助变量
+    /**
+     * oldKeyToIdx：一个映射对象，将旧节点数组中的键映射到索引。
+     *    这在后续处理 keyed nodes（带有键的节点）时非常有用。
+     *
+     * idxInOld：：用于存储在旧子节点数组中找到的与新节点对应的索引
+     * vnodeToMove： 保存需要移动的旧节点
+     * refElm： 参考节点，主要用于插入新节点时指定位置
+     */
+    //
+    //
+    let oldKeyToIdx, idxInOld, vnodeToMove, refElm;
+
+    /* 上面都是一些初始化，主要目的是设置必要的指针和引用，以便在后续的节点对比和更新过程中高效地操作数组和节点 */
+
+    // removeOnly is a special flag used only by <transition-group>
+    // to ensure removed elements stay in correct relative positions
+    // during leaving transitions
+    /**
+     * 这段注释解释了 removeOnly 变量的用途：
+     *    removeOnly 是一个特殊的标志变量，仅由 <transition-group> 组件使用。
+     *    在 Vue 中，<transition-group> 组件用于处理列表的进入和离开动画。
+     *    这个标志的作用是在元素离开（移除）过渡期间，确保这些被移除的元素在相对位置上保持正确。
+     *
+     * 在 <transition-group> 组件中，当元素离开（被移除）时，为了保持动画效果，
+     * 可能需要暂时禁止对这些元素进行位置调整。因此，通过 removeOnly 标志来控制是否允许移动节点。
+     * 这个标志确保了在过渡动画期间，元素的位置不会因为 DOM 操作而发生变化，从而保持动画的平滑和正确。
+     */
+    //该标志变量确定是否可以移动节点。
+    const canMove = !removeOnly;
+
+    //在非生产环境下，检查新子节点数组中是否有重复的键：
+    // if (process.env.NODE_ENV !== "production") {
+    //   checkDuplicateKeys(newCh);
+    // }
+
+    /**
+     * 下面代码是核心，负责在新旧子节点数组之间进行比较和更新操作。
+     * 这部分代码通过双指针（oldStartIdx 和 newStartIdx）算法来优化节点的更新，尽可能减少 DOM 操作。
+     */
+    while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
+      //这里定义了两个指针，分别指向新旧数组的头尾，当有一个数组遍历完成后，循环会结束
+      if (isUndef(oldStartVnode)) {
+        //旧节点头节点不存在，说明该节点已被处理过，移动索引 oldStartIdx。
+        oldStartVnode = oldCh[++oldStartIdx]; // Vnode has been moved left
+      } else if (isUndef(oldEndVnode)) {
+        //旧节点尾节点不存在，说明该节点已被处理过，移动索引 oldEndIdx
+        oldEndVnode = oldCh[--oldEndIdx];
+      } else if (sameVnode(oldStartVnode, newStartVnode)) {
+        //如果旧的头节点和新的头节点相同，则调用 patchVnode 进行更新
+        patchVnode(
+          oldStartVnode,
+          newStartVnode,
+          insertedVnodeQueue,
+          newCh,
+          newStartIdx
+        );
+
+        //然后移动 oldStartIdx 和 newStartIdx 指针。并修改新旧的头节点
+        oldStartVnode = oldCh[++oldStartIdx];
+        newStartVnode = newCh[++newStartIdx];
+      } else if (sameVnode(oldEndVnode, newEndVnode)) {
+        //如果旧节点的尾节点和新节点的尾节点相同，则调用patchVnode 进行更新
+        patchVnode(
+          oldEndVnode,
+          newEndVnode,
+          insertedVnodeQueue,
+          newCh,
+          newEndIdx
+        );
+
+        //然后移动 oldEndIdx 和 newEndIdx 指针。并修改新旧的尾节点
+        oldEndVnode = oldCh[--oldEndIdx];
+        newEndVnode = newCh[--newEndIdx];
+
+        //上面的步骤就是  头和头对比， 尾和尾对比
+      } else if (sameVnode(oldStartVnode, newEndVnode)) {
+        // Vnode moved right
+        //旧节点的头节点和新节点的尾节点相同，调用 patchVnode 进行更新。
+
+        /**
+         * 这里处理的是一种特殊情况：旧的开始节点与新的结束节点相同。
+         *    旧节点数组 oldCh：[A, B, C, D]
+         *    新节点数组 newCh：[B, C, D, A]
+         *
+         * 首先 头头  尾尾对比，发现都不一样；此时来到当前判断
+         * oldStartIdx = 0，oldEndIdx = 3
+         * newStartIdx = 0，newEndIdx = 3
+         * oldStartVnode = A，oldEndVnode = D
+         * newStartVnode = B，newEndVnode = A
+         *
+         * 此时满足 oldStartVnode newEndVnode 相同
+         * 调用 patchVnode 来更新 A 节点
+         */
+
+        patchVnode(
+          oldStartVnode,
+          newEndVnode,
+          insertedVnodeQueue,
+          newCh,
+          newEndIdx
+        );
+
+        /**
+         * canMove 为 true，
+         * oldStartVnode.elm 被插入到 oldEndVnode.elm 的下一个兄弟节点之前，即 D 的后面。
+         */
+
+        canMove &&
+          nodeOps.insertBefore(
+            parentElm,
+            oldStartVnode.elm,
+            nodeOps.nextSibling(oldEndVnode.elm)
+          );
+
+        //更新索引和节点。A 从开始位置移动到了结束位置。
+        //更新后的索引使 oldStartVnode 和 newEndVnode 分别指向 B 和 D。
+        oldStartVnode = oldCh[++oldStartIdx];
+        newEndVnode = newCh[--newEndIdx];
+      } else if (sameVnode(oldEndVnode, newStartVnode)) {
+        // Vnode moved left
+        //旧节点的尾节点和新节点的头节点相同，调用 patchVnode 进行更新。
+
+        /**
+         * 旧节点数组 oldCh：[A, B, C, D]
+         * 新节点数组 newCh：[D, A, B, C]
+         *
+         * 调用 patchVnode 来更新节点 D
+         */
+        patchVnode(
+          oldEndVnode,
+          newStartVnode,
+          insertedVnodeQueue,
+          newCh,
+          newStartIdx
+        );
+
+        //canMove 为 true。
+        //oldEndVnode.elm 被插入到 oldStartVnode.elm 之前，即 A 的前面。
+        canMove &&
+          nodeOps.insertBefore(parentElm, oldEndVnode.elm, oldStartVnode.elm);
+
+        //更新索引和节点，D 从结束位置移动到了开始位置。
+        //更新后的索引使 oldEndVnode 和 newStartVnode 分别指向 C 和 A。
+        oldEndVnode = oldCh[--oldEndIdx];
+        newStartVnode = newCh[++newStartIdx];
+      } else {
+        //这里处理较为复杂的情况：
+        //新节点在旧节点中找不到匹配的节点，或新节点在旧节点中找到了匹配的节点但需要更新和移动。
+
+        /**
+         * 旧节点数组 oldCh：[A, B, C, D]
+         * 新节点数组 newCh：[E, A, B, C]
+         * oldStartIdx = 0，oldEndIdx = 3
+         * newStartIdx = 0，newEndIdx = 3
+         * oldStartVnode = A，oldEndVnode = D
+         * newStartVnode = E，newEndVnode = C
+         *
+         * 1. 建旧节点的索引表:
+         *  oldKeyToIdx = { A: 0, B: 1, C: 2, D: 3 }
+         * 2. 查找新节点 E 在旧节点中的位置
+         * 3. 处理新节点
+         * 4. 更新索引和节点
+         */
+
+        if (isUndef(oldKeyToIdx))
+          //如果 oldKeyToIdx 是未定义的（即第一次进入这个分支）
+          //通过调用 createKeyToOldIdx 方法来创建一个旧节点的索引表
+          //这个索引表是一个键值对，键是节点的 key，值是节点在 oldCh 数组中的索引。
+          oldKeyToIdx = createKeyToOldIdx(oldCh, oldStartIdx, oldEndIdx);
+
+        //在旧节点中查找新节点的位置
+        //如果 newStartVnode 有 key，则在 oldKeyToIdx 中查找这个 key 对应的索引。
+        //如果 newStartVnode 没有 key，则调用 findIdxInOld 方法
+        //在 oldCh 数组的 [oldStartIdx, oldEndIdx] 范围内查找 newStartVnode 对应的索引。
+        idxInOld = isDef(newStartVnode.key)
+          ? oldKeyToIdx[newStartVnode.key]
+          : findIdxInOld(newStartVnode, oldCh, oldStartIdx, oldEndIdx);
+
+        if (isUndef(idxInOld)) {
+          //如果 idxInOld 是未定义的，表示 newStartVnode 在旧节点中找不到对应的节点，
+          //这是一个新的节点，需要创建。
+          createElm(
+            newStartVnode,
+            insertedVnodeQueue,
+            parentElm,
+            oldStartVnode.elm,
+            false,
+            newCh,
+            newStartIdx
+          );
+        } else {
+          //表示在旧节点中找到了对应的节点 vnodeToMove。
+          vnodeToMove = oldCh[idxInOld];
+          if (sameVnode(vnodeToMove, newStartVnode)) {
+            //如果 vnodeToMove 和 newStartVnode 是相同的节点，则调用 patchVnode 更新节点。
+            patchVnode(
+              vnodeToMove,
+              newStartVnode,
+              insertedVnodeQueue,
+              newCh,
+              newStartIdx
+            );
+
+            // oldCh[idxInOld] 设置为 undefined，表示这个节点已经处理过了。
+            oldCh[idxInOld] = undefined;
+
+            //将 vnodeToMove.elm 移动到 oldStartVnode.elm 之前。
+            canMove &&
+              nodeOps.insertBefore(
+                parentElm,
+                vnodeToMove.elm,
+                oldStartVnode.elm
+              );
+          } else {
+            //如果 vnodeToMove 和 newStartVnode 不是相同的节点（尽管它们有相同的 key），
+            //则创建新的节点 newStartVnode
+            createElm(
+              newStartVnode,
+              insertedVnodeQueue,
+              parentElm,
+              oldStartVnode.elm,
+              false,
+              newCh,
+              newStartIdx
+            );
+          }
+        }
+
+        //更新索引和节点
+        //更新 newStartIdx，指向新节点数组的下一个开始节点。
+        newStartVnode = newCh[++newStartIdx];
+      }
+    }
+
+    //以下代码在处理剩余的节点
+    if (oldStartIdx > oldEndIdx) {
+      //新节点数组中还有剩余的节点而旧节点数组已经处理完毕。
+
+      /**
+       * 例子:
+       * 旧节点数组 oldCh：[A, B, C]
+       * 新节点数组 newCh：[D, E, F, G]
+       *
+       * 因为旧节点数组已经处理完毕，所以 oldStartIdx > oldEndIdx。
+       * 查看新节点数组中剩余节点的情况：
+       *  如果 newCh[newEndIdx + 1] 存在，则 refElm 为下一个节点的 elm。
+       * 剩余的新节点数组中的节点 [D,E, F, G] 会被添加到 DOM 中。
+       */
+      //根据新节点数组的情况确定插入位置 refElm
+      //newCh[newEndIdx + 1] 不存在（即已经处理完了所有新节点），refElm 为 null。
+      refElm = isUndef(newCh[newEndIdx + 1]) ? null : newCh[newEndIdx + 1].elm;
+
+      //调用 addVnodes 方法将剩余的新节点数组中的节点添加到 DOM 中。
+      addVnodes(
+        parentElm,
+        refElm,
+        newCh,
+        newStartIdx,
+        newEndIdx,
+        insertedVnodeQueue
+      );
+    } else if (newStartIdx > newEndIdx) {
+      //旧节点数组中还有剩余的节点而新节点数组已经处理完毕。
+      //调用 removeVnodes 方法移除剩余的旧节点数组中的节点。
+
+      /**
+       * 例子：
+       * 旧节点数组 oldCh：[A, B, C]
+       * 新节点数组 newCh：[D, E]
+       *
+       * 新节点数组中的索引已经超过了范围，但旧节点数组中还有剩余的节点
+       * 我们调用 removeVnodes 方法将旧节点数组中剩余的节点从 DOM 中移除
+       * 剩余的旧节点数组中的节点 [C] 会被从 DOM 中移除。
+       *
+       */
+      removeVnodes(oldCh, oldStartIdx, oldEndIdx);
+    }
+  }
+
+  /**
+   * 这个函数的目的是创建一个从节点 key 到节点索引的映射，
+   * 以便在 diff 过程中快速定位旧节点数组中具有特定 key 的节点的位置
+   *
+   * @param {*} children 要创建映射的节点数组
+   * @param {*} beginIdx 开始索引
+   * @param {*} endIdx 结束索引
+   * @returns
+   */
+  function createKeyToOldIdx(children, beginIdx, endIdx) {
+    // key 用于存储节点的 key。
+    //i 临时变量，存在索引
+    var i, key;
+    var map = {};
+    for (i = beginIdx; i <= endIdx; ++i) {
+      key = children[i].key;
+      if (isDef(key)) {
+        map[key] = i;
+      }
+    }
+    return map;
+  }
+
+  //在旧节点数组中查找与给定节点（node）具有相同 vnode 的节点，并返回其索引。
+  function findIdxInOld(node, oldCh, start, end) {
+    for (let i = start; i < end; i++) {
+      const c = oldCh[i];
+      if (isDef(c) && sameVnode(node, c)) return i;
+    }
+  }
+
+  /**
    * 这个函数是 Virtual DOM 中非常重要的一部分，负责处理新旧 VNode 的差异，并将这些差异应用到真实的 DOM 元素上。
    * diff 算法 麻烦的地方主要在 更新子节点中（updateChildren）
    *
