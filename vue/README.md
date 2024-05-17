@@ -140,7 +140,142 @@ idxInOld = isDef(newStartVnode.key)
 
 
 
+## vue3 的 diff
 
+### 1.相比于vue2有哪些改进
+
+1. 静态节点提升
+
+   在vue3中，编译器会在编译阶段分析模块，并将静态节点提升到渲染函数之外。这意味着静态节点只会被创建一次，而不是在每次渲染时重新创建，从而减少了渲染开销。
+
+   
+
+2. block和patch flag
+
+   vue3 引入了块级优化（block optimization）和补丁标志（patch flag）的概念。块级优化通过将模板分成动态和静态部分，使得虚拟DOM的比较和更新更高效。补丁标志用于指示哪些部分发生了变化，从而避免不必要的比较操作
+
+   
+
+3. 更智能的diff算法（最长递增子序列）
+
+   采用了双端比较和最长递增子序列（LIS），以更高效地处理节点的插入、删除和移动操作。
+
+   双端比较（头头、尾尾）：同时从列表的两端进行比较，可以快速找到不匹配的节点，从而减少了比较的次数和DOM操作
+
+   最长递增子序列算法：用于优化节点的移动操作，确保只进行必要的最小移动操作，减少了性能开销。
+
+   
+
+
+
+### 2. diff算法流程以及有哪些优化？
+
+什么是最长递增子序列？
+
+> 最长递增子序列是一个数组中按顺序排列的最大子序列，其元素按递增顺序排列。例如，数组 [10, 22, 9, 33, 21, 50, 41, 60, 80] 的 LIS 是 [10, 22, 33, 50, 60, 80]。
+
+
+
+在 Vue 3 的 diff 算法中，LIS 用于确定在更新列表时哪些节点可以保留原位置，从而减少需要移动的节点数量。（vue2的diff 算法没有去关注哪些节点不用去移动）
+
+
+
+vue3 diff 对比过程：
+
+- 旧列表：[A, B, C, D]
+- 新列表：[B, C, E, A]
+
+1. 首先双端比较，从头和尾`同时`进行，快速找到不匹配的部分
+
+   A 和 B ， D 和A 不匹配，此时停止双端对比，不匹配的中间部分为[B,C,E,A] 和 [A,B,C,D]
+
+   > 如果：
+   > 旧列表： [A,B,C,D,E]
+   >
+   > 新列表:  [A,C,D,B,E]
+   >
+   > 停止双端对比后，不匹配的部分为 B,C,D 和 C,D,B
+
+2. 建立映射表
+
+   建立旧列表中`剩余元素`的映射表（key为vnode，value为vnode所在的索引）
+
+   ```js
+   map: {
+       A:0,
+     	B:1,
+     	C:2,
+       D:3
+   }
+   ```
+
+3. 生成新列表中每个元素在旧列表对应的索引
+
+   ```js
+   旧列表：[A,B,C,D]
+   旧列表索引:{
+       A:0,
+     	B:1,
+     	C:2,
+       D:3
+   }
+   新列表：[B, C, E, A]
+   新列表元素在旧列表中的索引:[1,2,undefiend,0]
+   undefiend 代表是新增的元素，在旧列表中没有找到
+   ```
+
+4. 计算LIS（最长递增子序列）
+
+   尽可能到找到最长递增的（通过贪心+二分查找来完成），这些节点可以不用移动。在索引数组 [1, 2, undefined, 0] 中计算 LIS。LIS 是 [1, 2]，对应的新列表元素为 [B, C]，这些元素在旧列表中可以保留原位置。
+
+   E 是新元素，需要插入，A需要从位置0移动到最后
+
+
+
+最长递增子序列函数实现，详细讲解在src/core/vdom/vue3getSequency.js
+
+```js
+function getSequence(arr) {
+  const p = arr.slice();
+  const result = [0];
+  let i, j, u, v, c;
+  const len = arr.length;
+  for (i = 0; i < len; i++) {
+    const arrI = arr[i];
+    if (arrI !== 0) {
+      j = result[result.length - 1];
+      if (arr[j] < arrI) {
+        p[i] = j;
+        result.push(i);
+        continue;
+      }
+      u = 0;
+      v = result.length - 1;
+      while (u < v) {
+        c = (u + v) >> 1;
+        if (arr[result[c]] < arrI) {
+          u = c + 1;
+        } else {
+          v = c;
+        }
+      }
+      if (arrI < arr[result[u]]) {
+        if (u > 0) {
+          p[i] = result[u - 1];
+        }
+        result[u] = i;
+      }
+    }
+  }
+  u = result.length;
+  v = result[u - 1];
+  while (u-- > 0) {
+    result[u] = v;
+    v = p[v];
+  }
+  return result;
+}
+```
 
 
 
