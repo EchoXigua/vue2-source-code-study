@@ -7,6 +7,11 @@
  *
  * 时间复杂度 nlogn
  *
+ * 算法实现思路：
+ *  1. 遍历数组，如果当前这一项比最后一项大则直接放到末尾
+ *  2. 如果当前这一项比最后一项小，需要在序列中通过二分查找找到比当前大的这一项，用它来替换
+ *  3. 此时求出来的序列长度没问题，但是顺序不对，使用 前驱节点追溯来解决
+ *
  * @param {Array} arr
  * @returns {Array}
  */
@@ -26,7 +31,7 @@ function getSequence(arr) {
     //获取数组中的每个元素（索引）
     const arrI = arr[i];
 
-    //跳过索引为0的元素
+    //跳过索引为0的元素，0代表需要创建新元素，无需进行位置移动
     if (arrI !== 0) {
       //获取result 数组中最后一个元素的索引
       j = result[result.length - 1];
@@ -101,32 +106,43 @@ function getSequence(arr) {
     }
   }
 
+  //以下代码的目的是通过回溯前驱索引数组 p，重建并返回最长递增子序列（LIS）的索引序列。
+
+  //初始化 u 为 result 数组的长度。u 表示回溯过程中的当前索引。
   u = result.length;
+  //初始化 v 为 result 数组中最后一个索引的值。v 是 LIS 中的最后一个元素在原数组 arr 中的索引。
   v = result[u - 1];
   while (u-- > 0) {
+    //进入循环，从 result 数组的末尾开始回溯。每次循环将 u 减 1，直到 u 为 0。
+
+    //将 v 赋值给 result[u]。这一步将回溯过程中找到的索引放回到 result 数组的合适位置。
     result[u] = v;
+
+    //更新 v 为 p[v]，即 v 的前驱索引。p[v] 是原数组 arr 中 v 的前驱元素在 LIS 中的索引。
+    //通过这一步，我们沿着前驱索引逐步回溯，重建整个 LIS 的索引序列。
     v = p[v];
   }
   return result;
 }
 
-const oldList = ["A", "B", "C", "D"];
+const oldList = ["A", "B", "C", "D"]; // 1 2 3 4
 const newList = ["B", "C", "E", "A"];
 
 const keyToOldIndexMap = new Map();
 oldList.forEach((key, index) => {
-  keyToOldIndexMap.set(key, index);
+  keyToOldIndexMap.set(key, index + 1);
 });
 
-const newIndexToOldIndexMap = new Array(newList.length).fill(undefined);
+const newIndexToOldIndexMap = new Array(newList.length).fill(0);
 newList.forEach((key, newIndex) => {
   const oldIndex = keyToOldIndexMap.get(key);
   if (oldIndex !== undefined) {
     newIndexToOldIndexMap[newIndex] = oldIndex;
   }
 });
-
+console.log("newIndexToOldIndexMap", newIndexToOldIndexMap); //2 3 0 1
 const lis = getSequence(newIndexToOldIndexMap);
 console.log("LIS:", lis);
 
-// LIS 的值为 [1, 2]，表示索引为 1 和 2 的元素是递增的，即 B 和 C 可以保留原位置。
+//函数返回值是：下标数组
+// LIS 的值为 [2, 3]，对应的下标数组[0,1]，索引为 2 和 3 的元素是递增的，即 B 和 C 可以保留原位置。
