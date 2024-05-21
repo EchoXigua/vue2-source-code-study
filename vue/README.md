@@ -118,6 +118,20 @@ if (typeof Promise !== "undefined" && isNative(Promise)) {
 
 
 
+思考题：为什么 setImmediate 要比 setTimeout 更适合安排快速执行的任务？
+
+> `setImmediate` 和 `setTimeout` 都是用于安排异步任务的方法，它们之间的区别主要在于触发时机和性能方面的差异。
+>
+> 1. 触发时机:
+>    + `setTimeout` 在指定的时间间隔之后触发任务执行。但是，它会被浏览器的事件循环机制（Event Loop）的其他任务所阻塞，因此在事件队列中的其他任务执行完毕后才会执行 `setTimeout` 中的任务。
+>    + `setImmediate` 会在当前事件循环的末尾执行任务，而不管其他任务是否阻塞。这意味着 `setImmediate` 中的任务可以更快地执行，因为它会在当前事件循环的末尾立即执行。
+> 2. 性能：
+>    + 由于 `setImmediate` 在当前事件循环的末尾执行任务，因此它通常比 `setTimeout` 具有更低的延迟。这使得 `setImmediate` 更适合用于需要尽快执行的任务，尤其是在处理大量计算或者需要立即响应的事件时。
+>
+> 但需要注意的是，`setImmediate` 并不是所有环境都支持，而 `setTimeout` 在各种环境下都能正常使用。
+
+
+
 nextTick 实现
 
 ```js

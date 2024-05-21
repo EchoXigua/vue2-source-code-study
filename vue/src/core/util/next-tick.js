@@ -158,5 +158,3 @@ export function nextTick(cb, ctx) {
     });
   }
 }
-
-nextTick().then();
