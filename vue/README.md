@@ -1,4 +1,4 @@
-## 实现 vue2 的主要功能
+## 1. 实现 vue2 的主要功能
 
 - new Vue 发生了什么
 - 模板编译
@@ -10,7 +10,7 @@
 
 
 
-## vue2 diff 算法
+## 2. vue2 diff 算法
 
 ### 1. 流程
 
@@ -140,7 +140,7 @@ idxInOld = isDef(newStartVnode.key)
 
 
 
-## vue3 的 diff
+## 3. vue3 的 diff
 
 ### 1.相比于vue2有哪些改进
 
@@ -280,6 +280,356 @@ function getSequence(arr) {
 
 
 
+
+## 4. vue2 为什么要重写数组身上的方法？
+
+我们知道vue2 通过 **Object**.**defineProperty** 这个方法来完成数据的劫持，通过下表访问数组元素的本质也是在访问属性，所以也能被get、set拦截到
+
+内容参考 https://juejin.cn/post/7350585600859308084
+
+### 1. 属性拦截
+
+length 是数组的一个内建属性，并且不能使用 **Object.defineProperty** 进行重新定义或修改其属性描述符。以下代码会报错
+
+```js
+const arr = [1, 2, 3];
+Object.defineProperty(arr, "length", {
+    get() {
+      return arr.length;
+    },
+    set(val) {
+      console.log("123", val);
+    },
+});
+```
+
+
+
+可以通过定义索引来拦截get、set
+
+```js
+const arr = [1, 2, 3];
+Object.defineProperty(arr, "0", {
+    get() {
+      console.log("get index 0 ");
+      return arr[0];
+    },
+    set(val) {
+      console.log("set index 0", val);
+    },
+  });
+
+  Object.defineProperty(arr, "4", {
+    get() {
+      console.log("get index 4 ");
+      return arr[4];
+    },
+    set(val) {
+      console.log("set index 4", val);
+    },
+  });
+```
+
+通过 **Object.defineProperty** 可以对特定索引进行拦截，但这是不实用的，因为需要为数组的每个可能的索引都定义一遍。
+
+
+
+### 2. 方法拦截
+
+数组身上的 push、pop等方法 调用的是  Array.prototype 上的属性，需要劫持的话得这样做
+
+```js
+  const arr = [1, 2, 3];
+  Object.defineProperty(arr, "push", {
+    get() {
+      console.log("get arr push");
+      return Array.prototype.push;
+    },
+    set(val) {
+      console.log("set arr push", val);
+    },
+  });
+
+  console.log(arr);
+
+  arr.push(4);
+```
+
+然而这样的方式只能劫持到 push 属性的访问（劫持不到调用！set）其他什么都拿不到，所以不会去使用这样方法。
+
+如果真正要去使用这个来做，会遇到性能问题，vue2使用了一个巧妙的方式，重写数组方法。
+
+
+
+### 3. vue2 重写数组方法
+
+我们只需要针对于会修改自身数组的方法进行劫持，如：push、pop、shift、unshift、splice、sort、reverse
+
+```js
+//vue2 源码重写数组方法，代码没有多少行
+
+import { def } from '../util/index'
+const arrayProto = Array.prototype
+const arrayMethods = Object.create(arrayProto)
+
+const methodsToPatch = [
+  'push',
+  'pop',
+  'shift',
+  'unshift',
+  'splice',
+  'sort',
+  'reverse'
+]
+
+methodsToPatch.forEach(function (method) {
+  // cache original method
+  const original = arrayProto[method]
+  def(arrayMethods, method, function mutator (...args) {
+    //调用原生的数组方法拿到结果，最后将其返回
+    const result = original.apply(this, args)
+    const ob = this.__ob__
+    
+    //针对于插入操作获取到插入的内容
+    let inserted
+    switch (method) {
+      case 'push':
+      case 'unshift':
+        inserted = args
+        break
+      case 'splice':
+        inserted = args.slice(2)
+        break
+    }
+      
+    //对插入的内容进行数据劫持
+    if (inserted) ob.observeArray(inserted)
+    
+    // notify change 通知依赖收集的函数执行
+    ob.dep.notify()
+
+    //原生数组调用得到的结果返回
+    return result
+  })
+})
+
+// 观察数组元素
+Observer.prototype.observeArray = function observeArray(items) {
+  for (let i = 0, l = items.length; i < l; i++) {
+    observe(items[i]);
+  }
+};
+```
+
+vue2 针对数组从始至终都没有进行 defineReactive，只不过增加了一个 observer 对象，当遇到一个value 是数组时，vue2会遍历每个元素执行 defineReactive，但数组本身没有。
+
+
+
+### 4. vue3 重写数组方法
+
+vue3 使用的是 proxy 对数据进行劫持，它是针对对象级别的拦截，而 Object.defineProperty 是对对象属性的拦截。这就导致了vue2需要对每个属性添加 get、set，这也是对一个对象直接添加和删除无发被劫持到的问题。 
+
+
+
+vue3针对数组的重写分为两种：
+
++ 针对查找：includes、indexOf、lastIndexOf
++ 针对增删：push、pop、shift、unshift、splice
+
+
+
+为什么vue3 有了 proxy 还需要对数组的方法进行重写呢？
+
+>  vue3 数据劫持是惰性的，因为proxy的特性，不需要一开始就遍历对象的每个属性，而是以对象为整体。当访问到属性再去劫持，如果访问的属性 是一个引用对象，才会递归代理。代理后返回的是一个 proxy 对象。
+
+
+
+查找方法的重写原因：
+
+数组的 includes 方法底层也是帮我们遍历数组找到对应的 value
+
+```js
+  const obj = { name: "test", age: 100 };
+  const arr = [obj];
+
+  function reactive(obj) {
+    return new Proxy(obj, {
+      get(target, key) {
+        console.log(key);//打印key
+        const res = target[key];
+        if (Object.prototype.toString.call(res) === "[object Object]") {
+          return reactive(res);
+        }
+        return res;
+      },
+      set(target, key, value) {
+        target[key] = value;
+      },
+    });
+  }
+
+  const arrReactive = reactive(arr);
+  console.log(arrReactive.includes(obj)); // false
+```
+
+会发现打印结果多了三个 includes、length、0
+
+先访问数组的 includes 属性，接着再访问 length 属性，然后开始遍历访问数组下标进行查找
+
+假如我们数组存储的全是普通对象，那经过 reactive 代理后这里的普通对象会全部变成代理对象，所以 includes 底层进行遍历的时候**拿到的都是代理对象**进行比对，因此才不符合我们的预期
+
+
+
+Vue3 对于这个问题的处理很简单，直接重写 includes 方法，先针对于代理数组中调用 includes 方法查找，如果没有找到再拿到原始数组中调用 includes 方法查找，两次查找就能完美解决这个问题
+
+
+
+需要增加一个 raw 字段来保存原始数据，然后只针对于 includes 方法进行重写。
+
+```js
+ const obj = { name: "test", age: 20 };
+  const arr = [obj];
+
+  function reactive(obj) {
+    const proxyData = new Proxy(obj, {
+      get(target, key) {
+        let res = target[key];
+        // 访问 includes 属性拦截使用我们自己重写的返回
+        if (key === "includes") res = includes;
+        if (Object.prototype.toString.call(res) === "[object Object]") {
+          return reactive(res);
+        }
+        return res;
+      },
+      set(target, key, value) {
+        target[key] = value;
+      },
+    });
+    // 保存原始数据
+    proxyData.raw = obj;
+    return proxyData;
+  }
+  // 原始 includes 方法
+  const originIncludes = Array.prototype.includes;
+  // 重写方法
+  function includes(...args) {
+    // 遍历代理对象
+    let res = originIncludes.apply(this, args);
+    if (res === false) {
+      // 代理对象找不到，再去原始数据查找
+      res = originIncludes.apply(this.raw, args);
+    }
+    return res;
+  }
+  const arrReactive = reactive(arr);
+  console.log(arrReactive.includes(obj)); // true 
+```
+
+关于数组的查找还有 indexOf、lastIndexOf 这两个 API，统一进行重写即可，都是一样的思路
+
+
+
+增删方法重写的原因：
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <div class="box"></div>
+    <script>
+      const boxDom = document.querySelector(".box");
+      const obj = { name: "test", age: 20 };
+
+      const wm = new WeakMap();
+      let activeEffect = null;
+
+      // 触发依赖收集
+      function effect(fn) {
+        activeEffect = fn;
+        fn();
+      }
+
+      function reactive(obj) {
+        return new Proxy(obj, {
+          get(target, key) {
+            let res = target[key];
+            track(target, key); // 依赖收集
+            return res;
+          },
+          set(target, key, value) {
+            target[key] = value;
+            trigger(target, key); // 触发依赖
+            return true;
+          },
+        });
+      }
+      // weakMap => Map => Set 结构进行依赖收集
+      function track(target, key) {
+        if (activeEffect) {
+          let map = wm.get(target);
+          if (!map) {
+            map = new Map();
+            wm.set(target, map);
+          }
+
+          let deps = map.get(key);
+          if (!deps) {
+            deps = new Set();
+            map.set(key, deps);
+          }
+
+          deps.add(activeEffect);
+          // activeEffect = null;  //暂时注释掉这里，原文的例子，当依赖收集一次后直接给null，后续收集不到依赖了，这里注释掉后，push的时候一直能收集到这个依赖，也会导致后续说的爆栈
+        }
+      }
+      // 根据 target 找到对应的 deps 取出执行收集的副作用函数
+      function trigger(target, key) {
+        const map = wm.get(target);
+        if (!map) return;
+        const deps = map.get(key);
+        if (!deps) return;
+        for (const effect of deps) {
+          effect();
+        }
+      }
+      const objProxy = reactive(obj);
+
+      // 手动执行副作用函数触发依赖收集
+      effect(() => {
+        boxDom.textContent = objProxy.name;
+        console.log("更改 DOM 内容");
+      });
+    </script>
+  </body>
+</html>
+```
+
+
+
+```js
+const arr = [1, 2, 3];
+const arrProxy = reactive(arr);
+effect(() => {
+  arrProxy.push(4);
+});
+```
+
+
+
+当调用 push 方法时会有这个过程：
+
+1. 访问数组的 push 属性（get）
+2. 访问数组的 length 属性 （get）
+3. 修改数组的 length 属性 +1 （set）
+
+当执行副作用函数时 getter 会进行依赖收集，而它的 setter 又会导致该副作用函数重新执行，因此就这样无限循环下去爆栈
+
+ Vue3 给到的解决方案就是**针对于这些内部会改动 length 属性的数组方法，会屏蔽掉 length 属性的依赖收集操作**，在 push 调用上，调用之前我们修改标志禁止收集，调用结束后再解开即可
 
 
 
