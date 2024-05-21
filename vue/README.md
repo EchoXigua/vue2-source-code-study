@@ -8,6 +8,157 @@
 
 
 
+### 1. 响应式系统
+
+
+
+
+
+### 2. nextTick
+
+前置知识，了解js的事件循环
+
+
+
+这里主要是定义了一个函数，用于执行所有的回调函数，这个机制通常用于异步编程中，用于批量处理回调函数，以减少异步操作的频率。
+
++ **批量 DOM 更新**：在一个事件循环中收集所有需要更新 DOM 的操作，然后一次性执行这些操作，减少不必要的重绘和回流。
+ + **异步状态更新**：在响应式系统中，当数据变化时，将所有相关的更新操作收集起来，在一个异步任务中执行，确保状态的一致性。
+
+```js
+// 声明并导出一个标志，表示是否使用微任务
+export let isUsingMicroTask = false;
+
+// 定义一个存储回调函数的数组
+const callbacks = [];
+// 标志是否有未处理的回调。用于防止重复调度回调执行
+//它的初始值是 false，表示当前没有回调在等待执行。
+let pending = false;
+
+function flushCallbacks() {
+  // 将 pending 设置为 false，表示回调已经在处理中
+  pending = false;
+  // 创建 callbacks 数组的副本
+  const copies = callbacks.slice(0);
+  // 清空原始 callbacks 数组
+  callbacks.length = 0;
+
+  //创建副本和清空原数组，这样做是为了在执行当前回调函数时，
+  //允许新的回调函数被添加到 callbacks 数组中，而不会影响当前的执行。
+
+  // 依次执行副本中的每个回调函数
+  for (let i = 0; i < copies.length; i++) {
+    copies[i]();
+  }
+}
+```
+
+
+
+
+
+```js
+//这是一个函数，用于安排微任务或宏任务以异步执行 flushCallbacks 函数。
+let timerFunc;
+
+if (typeof Promise !== "undefined" && isNative(Promise)) {
+  //检测 Promise
+  const p = Promise.resolve();
+  timerFunc = () => {
+    p.then(flushCallbacks);
+    //处理 iOS UIWebView 的问题：在这种环境中，Promise.then 有时会卡住，
+    //通过设置一个空的 setTimeout 来强制刷新微任务队列。
+    if (isIOS) setTimeout(noop);
+  };
+  isUsingMicroTask = TRUE;
+} else if (
+  !isIE &&
+  typeof MutationObserver !== "undefined" &&
+  (isNative(MutationObserver) ||
+    MutationObserver.toString() === "[object MutationObserverConstructor]")
+) {
+  //检测 MutationObserver.如果 Promise 不可用且 MutationObserver 存在
+  //（并且不是 IE 浏览器，因为 IE11 中 MutationObserver 不可靠），则使用 MutationObserver。
+  let counter = 1;
+  const observer = new MutationObserver(flushCallbacks);
+  const textNode = document.createTextNode(String(counter));
+
+  observer.observe(textNode, {
+    characterData: true,
+  });
+
+  //通过更改 textNode 的数据触发 MutationObserver 的回调，从而实现微任务。
+  timerFunc = () => {
+    counter = (counter + 1) % 2;
+    textNode.data = String(counter);
+  };
+  isUsingMicroTask = true;
+} else if (typeof setImmediate !== "undefined" && isNative(setImmediate)) {
+  //检测 setImmediate
+  //如果 setImmediate 存在且是原生实现，则使用 setImmediate 作为回退方案。
+  //虽然 setImmediate 是宏任务，但比 setTimeout 更适合安排快速执行的任务。
+  timerFunc = () => {
+    setImmediate(flushCallbacks);
+  };
+} else {
+  //如果以上所有方法都不可用，则使用 setTimeout 作为最后的回退方案。
+  timerFunc = () => {
+    setTimeout(flushCallbacks, 0);
+  };
+}
+```
+
+**优先选择**: 如果环境支持原生 `Promise`，则使用 `Promise.then`。
+
+**次优选择**: 如果 `Promise` 不可用且 `MutationObserver` 存在且可靠，则使用 `MutationObserver`。
+
+**回退方案**: 如果以上都不可用，则依次选择 `setImmediate` 和 `setTimeout`。
+
+通过这种选择策略，可以在不同的浏览器环境中可靠地实现异步回调，优先使用微任务以提高性能，必要时使用宏任务作为回退方案。
+
+
+
+nextTick 实现
+
+```js
+function nextTick(cb, ctx) {
+  let _resolve;
+
+  //将回调函数添加到 callbacks数组中
+  callbacks.push(() => {
+    if (cb) {
+      try {
+        cb.call(ctx);
+      } catch (error) {
+        handleError(e, ctx, "nextTick");
+      }
+    } else if (_resolve) {
+      _resolve(ctx);
+    }
+  });
+
+  //异步任务的调度。检查当前是否有待执行的异步任务。
+  if (!pending) {
+    //果没有待执行的异步任务（即 pending 为 false），
+    //将 pending 设置为 true，然后调用 timerFunc() 来安排执行异步任务。
+    pending = true;
+    timerFunc();
+  }
+
+  if (!cb && typeof Promise !== "undefined") {
+    //检查是否传入了回调函数 cb，并且环境是否支持 Promise。
+    //如果没有传入回调函数且环境支持 Promise，则返回一个新的 Promise 对象。
+    //将 resolve 函数赋值给 _resolve 变量，以便后续调用。
+    return new Promise((resolve) => {
+      //保存resolve，这个resolve 可以控制nextTick回调什么时候成功执行
+      _resolve = resolve;
+    });
+  }
+}
+```
+
+
+
 
 
 ## 2. vue2 diff 算法
