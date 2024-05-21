@@ -9,6 +9,7 @@ export const createCompiler = createCompilerCreator(function baseComile(
 ) {
   //把模板变成ast
   const ast = parse(template.trim(), options);
+  console.log("ast", ast);
 
   //对ast树进行优化，主要是静态节点标记和静态根标记
   if (options.optimize !== false) {

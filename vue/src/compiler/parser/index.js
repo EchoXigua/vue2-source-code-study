@@ -1,20 +1,20 @@
 import he from "he";
-import { extend, no,cached } from "@/shared/util";
+import { extend, no, cached } from "@/shared/util";
 import { parseHTML } from "./html-parser";
 import { parseText } from "./text-parser";
 
-// import {
-//   addProp,
-//   addAttr,
-//   baseWarn,
-//   addHandler,
-//   addDirective,
-//   getBindingAttr,
-//   getAndRemoveAttr,
-//   getRawBindingAttr,
-//   pluckModuleFunction,
-//   getAndRemoveAttrByRegex,
-// } from "../helpers";
+import {
+  addProp,
+  addAttr,
+  baseWarn,
+  addHandler,
+  addDirective,
+  getBindingAttr,
+  getAndRemoveAttr,
+  getRawBindingAttr,
+  pluckModuleFunction,
+  getAndRemoveAttrByRegex,
+} from "../helpers";
 
 //回车\r 换行\n 正则
 const lineBreakRE = /[\r\n]/;
@@ -64,365 +64,375 @@ export function createASTElement(tag, attrs, parent) {
  * @returns {ASTElement | void}
  */
 
-// export function parse(template, options) {
-//   warn = options.warn || baseWarn;
+export function parse(template, options) {
+  console.log("parse 测试中");
 
-//   platformIsPreTag = options.isPreTag || no;
-//   platformMustUseProp = options.mustUseProp || no;
-//   //得到当前元素的命名空间
-//   platformGetTagNamespace = options.getTagNamespace || no;
+  warn = options.warn || baseWarn;
 
-//   //是否是预留标签
-//   const isReservedTag = options.isReservedTag || no;
+  platformIsPreTag = options.isPreTag || no;
+  platformMustUseProp = options.mustUseProp || no;
+  //得到当前元素的命名空间
+  platformGetTagNamespace = options.getTagNamespace || no;
 
-//   //是否是组件
-//   maybeComponent = (el) => !!el.component || isReservedTag(el.tag);
+  //是否是预留标签
+  const isReservedTag = options.isReservedTag || no;
 
-//   transforms = pluckModuleFunction(options.modules, "transformNode");
-//   preTransforms = pluckModuleFunction(options.modules, "preTransformNode");
-//   postTransforms = pluckModuleFunction(options.modules, "postTransformNode");
+  //是否是组件
+  maybeComponent = (el) => !!el.component || isReservedTag(el.tag);
 
-//   delimiters = options.delimiters;
+  transforms = pluckModuleFunction(options.modules, "transformNode");
+  preTransforms = pluckModuleFunction(options.modules, "preTransformNode");
+  postTransforms = pluckModuleFunction(options.modules, "postTransformNode");
 
-//   //上面的代码主要是从options 中拿取配置和一些function
+  delimiters = options.delimiters;
 
-//   //利用栈的先进后出 来进行html的解析
-//   const stack = [];
+  //上面的代码主要是从options 中拿取配置和一些function
 
-//   //保存空格
-//   const preserveWhitespace = options.preserveWhitespace !== false;
+  //利用栈的先进后出 来进行html的解析
+  const stack = [];
+  //保存空格
+  const preserveWhitespace = options.preserveWhitespace !== false;
+  const whitespaceOption = options.whitespace;
 
-//   //当前解析的模板的根节点
-//   let root;
-//   //当前正在解析的父节点 在解析过程中，当遇到嵌套的标签时
-//   //currentParent 会被更新为当前正在解析的标签节点的父节点。
-//   let currentParent;
+  //当前解析的模板的根节点
+  let root;
+  //当前正在解析的父节点 在解析过程中，当遇到嵌套的标签时
+  //currentParent 会被更新为当前正在解析的标签节点的父节点。
+  let currentParent;
 
-//   //当前是否处于 <pre> 标签或具有 v-pre 指令的元素的内部
-//   let inVPre = false;
-//   //当前是否处于 <pre> 标签的内部 如果在 <pre> 标签内部，则需要保留原始的换行和空格等格式化内容。
-//   let inPre = false;
-//   //是否已经发出了警告
-//   let warned = false;
+  //当前是否处于 <pre> 标签或具有 v-pre 指令的元素的内部
+  let inVPre = false;
+  //当前是否处于 <pre> 标签的内部 如果在 <pre> 标签内部，则需要保留原始的换行和空格等格式化内容。
+  let inPre = false;
+  //是否已经发出了警告
+  let warned = false;
 
-//   //警告只打印一次
-//   function warnOnce(msg, range) {
-//     if (!warned) {
-//       warned = true;
-//       warn(msg, range);
-//     }
-//   }
-
-//   //处理元素的闭合标签
-//   function closeElement(element) {
-//     trimEndingWhitespace(element);
-//     if (!inVPre && !element.processed) {
-//       //如果不在 v-pre 区域内，并且当前元素尚未处理过
-//       element = processElement(element, options);
-//     }
-
-//     //树管理
-//     if (!stack.length && element !== root) {
-//       //如果栈不为空，且当前处理元素不是根元素
-//       if ((root.if && element.elseif) || element.else) {
-//         //如果根元素有 v-if，并且当前元素是 v-else-if 或 v-else，则将当前元素添加到根元素的条件块中。
-//         if (process.env.NODE_ENV !== "production") {
-//           //如果不是生产环境 会根元素进行检查
-//           checkRootConstraints(element);
-//         }
-//         addIfCondition(root, {
-//           exp: element.elseif,
-//           block: element,
-//         });
-//       } else if (process.env.NODE_ENV !== "production") {
-//         //否则，如果不在生产环境下，则发出警告，提示模板应该只包含一个根元素。
-//         warnOnce(
-//           `Component template should contain exactly one root element. ` +
-//             `If you are using v-if on multiple elements, ` +
-//             `use v-else-if to chain them instead.`,
-//           { start: element.start }
-//         );
-//       }
-//     }
-
-//     if (currentParent && !element.forbidden) {
-//       //如果存在当前父元素，并且当前元素不是禁止的元素
-//       if (element.elseif || element.else) {
-//         //如果当前元素是 v-else-if 或 v-else，则处理if 条件块。
-//         processIfConditions(element, currentParent);
-//       } else {
-//         if (element.slotScope) {
-//           //如果当前元素有 slotScope，则处理作用域插槽
-//           const name = element.slotTarget || '"default"';
-//           (currentParent.scopedSlots || (currentParent.scopedSlots = {}))[
-//             name
-//           ] = element;
-//         }
-//         //当前元素添加到当前父元素的子元素列表中
-//         currentParent.children.push(element);
-//         //维护父子关系指向
-//         element.parent = currentParent;
-//       }
-//     }
-//     // final children cleanup  最终的子元素清理工作
-//     // filter out scoped slots  过滤掉作用域插槽
-//     element.children = element.children.filter((c) => !c.slotScope);
-//     // remove trailing whitespace node agai  再次去除末尾的空白字符
-//     trimEndingWhitespace(element);
-
-//     //检查是否需要退出 v-pre 区域。
-//     if (element.pre) {
-//       inVPre = false;
-//     }
-
-//     if (platformIsPreTag(element.tag)) {
-//       inPre = false;
-//     }
-
-//     // apply post-transforms
-//     for (let i = 0; i < postTransforms.length; i++) {
-//       postTransforms[i](element, options);
-//     }
-//   }
-
-//   //删除尾部空白节点
-//   function trimEndingWhitespace(el) {
-//     if (!inPre) {
-//       let lastNode;
-//       while (
-//         (lastNode = el.children[el.children.length - 1]) &&
-//         lastNode.type === 3 &&
-//         lastNode.text === " "
-//       ) {
-//         el.children.pop();
-//       }
-//     }
-//   }
-
-//   //检查根节点
-//   function checkRootConstraints(el) {
-//     if (el.tag === "slot" || el.tag === "template") {
-//       warnOnce(
-//         `Cannot use <${el.tag}> as component root element because it may ` +
-//           "contain multiple nodes.",
-//         { start: el.start }
-//       );
-//     }
-//     if (el.attrsMap.hasOwnProperty("v-for")) {
-//       warnOnce(
-//         "Cannot use v-for on stateful component root element because " +
-//           "it renders multiple elements.",
-//         el.rawAttrsMap["v-for"]
-//       );
-//     }
-//   }
-
-//   parseHTML(template, {
-//     //用于发出警告的函数。在解析过程中，可能会遇到一些错误或不规范的情况
-//     //这时可以调用 warn 函数发出警告信息。
-//     warn,
-//     //一个布尔值，表示是否期望解析的是 HTML。这个参数通常由编译器的配置或环境决定。
-//     expectHTML: options.expectHTML,
-//     //一个函数，用于判断给定标签名是否是一个自闭合标签。
-//     //通常情况下，自闭合标签是不需要闭合的标签，比如 <input>、<br> 等。
-//     isUnaryTag: options.isUnaryTag,
-//     //一个函数，用于判断给定标签名是否可以省略闭合标签。
-//     //一些特殊标签在某些情况下可以省略闭合标签，比如 <p> 标签
-//     canBeLeftOpenTag: options.canBeLeftOpenTag,
-//     //一个布尔值，表示是否应该对 HTML 实体 &\#10; 和 &\#13; 进行解码，转换为换行符。
-//     shouldDecodeNewlines: options.shouldDecodeNewlines,
-//     //一个布尔值，表示是否应该对 href 属性中的换行符进行解码。
-//     shouldDecodeNewlinesForHref: options.shouldDecodeNewlinesForHref,
-//     //一个布尔值，表示是否应该保留注释节点。
-//     shouldKeepComment: options.comments,
-//     //一个布尔值，表示是否需要在 AST 节点中保留源代码范围信息。通常在调试和错误处理时会用到。
-//     outputSourceRange: options.outputSourceRange,
-
-//     //用于处理开始标签的解析过程
-//     //函数主要就做 3 件事情，创建 AST 元素，处理 AST 元素，AST 树管理。
-//     start(tag, attrs, unary, start, end) {
-//       //检查父节点的命名空间，没有的话确定当前元素的命名空间。
-//       const ns =
-//         (currentParent && currentParent.ns) || platformGetTagNamespace(tag);
-
-//       // 创建AST 元素节点（element），并传入标签名、属性数组和当前父节点。
-//       let element = createASTElement(tag, attrs, currentParent);
-//       if (ns) {
-//         element.ns = ns;
-//       }
-
-//       if (isForbiddenTag(element) && !isServerRendering()) {
-//         //当前元素是禁止的标签，并且不是服务器端渲染 将元素节点标记为禁止，并发出相应的警告信息。
-//         element.forbidden = true;
-//         process.env.NODE_ENV !== "production" &&
-//           warn(
-//             "Templates should only be responsible for mapping the state to the " +
-//               "UI. Avoid placing tags with side-effects in your templates, such as " +
-//               `<${tag}>` +
-//               ", as they will not be parsed.",
-//             { start: element.start }
-//           );
-//       }
-
-//       // apply pre-transforms 预转换可能会对元素节点进行一些预处理操作。
-//       for (let i = 0; i < preTransforms.length; i++) {
-//         element = preTransforms[i](element, options) || element;
-//       }
-
-//       //是否在 v-pre 区域内
-//       if (!inVPre) {
-//         //不在，则调用 processPre 函数处理 v-pre 指令
-//         processPre(element);
-//         if (element.pre) {
-//           //根据元素节点的 pre 属性设置全局变量 inVPre 为 true。
-//           inVPre = true;
-//         }
-//       }
-
-//       if (platformIsPreTag(element.tag)) {
-//         //当前元素是 <pre> 标签，则将全局变量 inPre 设置为 true
-//         inPre = true;
-//       }
-
-//       if (inVPre) {
-//         //在 v-pre 区域内，则调用 processRawAttrs 函数处理元素节点的原始属性。
-//         processRawAttrs(element);
-//       } else if (!element.processed) {
-//         //元素节点尚未被处理过（!element.processed），则处理结构指令
-//         //（如 v-for、v-if、v-once 等）。
-//         processFor(element);
-//         processIf(element);
-//         processOnce(element);
-//       }
-
-//       if (!root) {
-//         root = element;
-//         if (process.env.NODE_ENV !== "production") {
-//           checkRootConstraints(root);
-//         }
-//       }
-
-//       //管理当前元素的父子关系和栈的变化
-//       if (!unary) {
-//         //是否为非自闭合标签
-//         //当前标签不是自闭合标签，需要在处理结束标签时将其作为当前父节点
-//         currentParent = element;
-//         stack.push(element);
-//       } else {
-//         //当前元素是自闭合标签（即 unary 为 true）
-//         //调用 closeElement 函数关闭当前元素
-//         //自闭合标签不会有子节点，因此无需设置当前父节点，也不需要入栈
-//         closeElement(element);
-//       }
-//     },
-
-//     //处理结束标签的函数之一
-//     //主要负责在解析结束标签时完成一些清理工作，并调用 closeElement 函数来关闭当前元素节点。
-//     end(tag, start, end) {
-//       //获取栈顶元素
-//       const element = stack[stack.length - 1];
-//       //栈顶元素从 stack 数组中弹出，相当于出栈操作。
-//       //使用 stack.length -= 1 而不是 stack.pop()
-//       //在某些情况下，直接操作数组的 length 属性会比调用 pop() 方法更高效。
-//       stack.length -= 1;
-
-//       //当前父节点更新为栈中的新栈顶元素，即当前处理元素的父元素。
-//       currentParent = stack[stack.length - 1];
-//       if (process.env.NODE_ENV !== "production" && options.outputSourceRange) {
-//         element.end = end;
-//       }
-//       //closeElement 函数主要用于处理元素节点的收尾工作，比如执行后处理器和检查元素约束等。
-//       closeElement(element);
-//     },
-
-//     //处理文本节点的函数;它主要负责将文本内容解析并添加到当前父节点的子节点列表中。
-//     chars(text, start, end) {
-//       //检查是否存在当前父节点
-//       if (!currentParent) {
-//         //没有当前父节点，则表示文本节点位于根节点之外，需要发出警告或忽略这些文本内容。
-//         if (process.env.NODE_ENV !== "production") {
-//           if (text === template) {
-//             //根节点是文本节点，发出警告
-//             //例如： <template>Hello Vue</template>
-//             warnOnce(
-//               "Component template requires a root element, rather than just text.",
-//               { start }
-//             );
-//           } else if ((text = text.trim())) {
-//             //文本节点游离在根节点之外
-//             /**
-//              * 例如：
-//              * <template>
-//              *  <div>Hello vue!</div>
-//              *  游离在根节点之外的文本节点
-//              * </template>
-//              */
-//             warnOnce(`text "${text}" outside root element will be ignored.`, {
-//               start,
-//             });
-//           }
-//         }
-//         return;
-//       }
-
-//       //源码这里是处理了ie的bug  IE文本区占位符错误
-
-//       //处理文本内容：
-//       const children = currentParent.children;
-//       if (inPre || text.trim()) {
-//         //是否处于 <pre> 标签内，去除空白
-
-//         //文本节点不做处理，不是文本节点则解码 HTML 实体
-//         text = isTextTag(currentParent) ? text : decodeHTMLCached(text);
-//       } else if (!children.length) {
-//         //删除纯空白节点
-//         text = "";
-//       } else if (whitespaceOption) {
-//         //配置的空白选项 (whitespaceOption)，决定是否需要处理文本内容中的空白字符。
-//         //可选的处理方式包括：保留空白字符、压缩连续的空白字符、移除空白字符等。
-//         if (whitespaceOption === "condense") {
-//           //在压缩模式下，删除空白节点，如果它包含换行，否则压缩成一个空格
-//           text = lineBreakRE.test(text) ? "" : " ";
-//         } else {
-//           text = " ";
-//         }
-//       } else {
-//         text = preserveWhitespace ? " " : "";
-//       }
-
-//       if (text) {
-//         if (!inPre && whitespaceOption === "condense") {
-//           //不在<pre> 标签内
-//           // 将连续的空格压缩成单个空格
-//           text = text.replace(whitespaceRE, " ");
-//         }
-//         let res;
-//         let child;
-//         if (!inVPre && text !== " " && (res = parseText(text, delimiters))) {
-//           //如果文本内容包含插值表达式，则生成类型为 2 的 AST 节点
-//           //ast 节点生成  词法分析，生成tokens 表达式
-//           child = {
-//             type: 2,
-//             expression: res.expression,
-//             tokens: res.tokens,
-//             text,
-//           };
-//         }
-//       }
-//     },
-
-//     comment(text, start, end) {},
-//   });
-
-//   return root;
-// }
-
-export function parse(template,options) {
-  console.log('parse 测试中');
-  return {
-    tag:'div',
-    children: []
+  //警告只打印一次
+  function warnOnce(msg, range) {
+    if (!warned) {
+      warned = true;
+      warn(msg, range);
+    }
   }
+
+  //处理元素的闭合标签
+  function closeElement(element) {
+    trimEndingWhitespace(element);
+    if (!inVPre && !element.processed) {
+      //如果不在 v-pre 区域内，并且当前元素尚未处理过
+      element = processElement(element, options);
+    }
+
+    //树管理
+    if (!stack.length && element !== root) {
+      //如果栈不为空，且当前处理元素不是根元素
+      if ((root.if && element.elseif) || element.else) {
+        //如果根元素有 v-if，并且当前元素是 v-else-if 或 v-else，则将当前元素添加到根元素的条件块中。
+        if (process.env.NODE_ENV !== "production") {
+          //如果不是生产环境 会根元素进行检查
+          checkRootConstraints(element);
+        }
+        addIfCondition(root, {
+          exp: element.elseif,
+          block: element,
+        });
+      } else if (process.env.NODE_ENV !== "production") {
+        //否则，如果不在生产环境下，则发出警告，提示模板应该只包含一个根元素。
+        warnOnce(
+          `Component template should contain exactly one root element. ` +
+            `If you are using v-if on multiple elements, ` +
+            `use v-else-if to chain them instead.`,
+          { start: element.start }
+        );
+      }
+    }
+
+    if (currentParent && !element.forbidden) {
+      //如果存在当前父元素，并且当前元素不是禁止的元素
+      if (element.elseif || element.else) {
+        //如果当前元素是 v-else-if 或 v-else，则处理if 条件块。
+        processIfConditions(element, currentParent);
+      } else {
+        if (element.slotScope) {
+          //如果当前元素有 slotScope，则处理作用域插槽
+          const name = element.slotTarget || '"default"';
+          (currentParent.scopedSlots || (currentParent.scopedSlots = {}))[
+            name
+          ] = element;
+        }
+        //当前元素添加到当前父元素的子元素列表中
+        currentParent.children.push(element);
+        //维护父子关系指向
+        element.parent = currentParent;
+      }
+    }
+    // final children cleanup  最终的子元素清理工作
+    // filter out scoped slots  过滤掉作用域插槽
+    element.children = element.children.filter((c) => !c.slotScope);
+    // remove trailing whitespace node agai  再次去除末尾的空白字符
+    trimEndingWhitespace(element);
+
+    //检查是否需要退出 v-pre 区域。
+    if (element.pre) {
+      inVPre = false;
+    }
+
+    if (platformIsPreTag(element.tag)) {
+      inPre = false;
+    }
+
+    // apply post-transforms
+    for (let i = 0; i < postTransforms.length; i++) {
+      postTransforms[i](element, options);
+    }
+  }
+
+  //删除尾部空白节点
+  function trimEndingWhitespace(el) {
+    if (!inPre) {
+      let lastNode;
+      while (
+        (lastNode = el.children[el.children.length - 1]) &&
+        lastNode.type === 3 &&
+        lastNode.text === " "
+      ) {
+        el.children.pop();
+      }
+    }
+  }
+
+  //检查根节点
+  function checkRootConstraints(el) {
+    if (el.tag === "slot" || el.tag === "template") {
+      warnOnce(
+        `Cannot use <${el.tag}> as component root element because it may ` +
+          "contain multiple nodes.",
+        { start: el.start }
+      );
+    }
+    if (el.attrsMap.hasOwnProperty("v-for")) {
+      warnOnce(
+        "Cannot use v-for on stateful component root element because " +
+          "it renders multiple elements.",
+        el.rawAttrsMap["v-for"]
+      );
+    }
+  }
+
+  parseHTML(template, {
+    //用于发出警告的函数。在解析过程中，可能会遇到一些错误或不规范的情况
+    //这时可以调用 warn 函数发出警告信息。
+    warn,
+    //一个布尔值，表示是否期望解析的是 HTML。这个参数通常由编译器的配置或环境决定。
+    expectHTML: options.expectHTML,
+    //一个函数，用于判断给定标签名是否是一个自闭合标签。
+    //通常情况下，自闭合标签是不需要闭合的标签，比如 <input>、<br> 等。
+    isUnaryTag: options.isUnaryTag,
+    //一个函数，用于判断给定标签名是否可以省略闭合标签。
+    //一些特殊标签在某些情况下可以省略闭合标签，比如 <p> 标签
+    canBeLeftOpenTag: options.canBeLeftOpenTag,
+    //一个布尔值，表示是否应该对 HTML 实体 &\#10; 和 &\#13; 进行解码，转换为换行符。
+    shouldDecodeNewlines: options.shouldDecodeNewlines,
+    //一个布尔值，表示是否应该对 href 属性中的换行符进行解码。
+    shouldDecodeNewlinesForHref: options.shouldDecodeNewlinesForHref,
+    //一个布尔值，表示是否应该保留注释节点。
+    shouldKeepComment: options.comments,
+    //一个布尔值，表示是否需要在 AST 节点中保留源代码范围信息。通常在调试和错误处理时会用到。
+    outputSourceRange: options.outputSourceRange,
+
+    //用于处理开始标签的解析过程
+    //函数主要就做 3 件事情，创建 AST 元素，处理 AST 元素，AST 树管理。
+    start(tag, attrs, unary, start, end) {
+      //检查父节点的命名空间，没有的话确定当前元素的命名空间。
+      const ns =
+        (currentParent && currentParent.ns) || platformGetTagNamespace(tag);
+
+      // 创建AST 元素节点（element），并传入标签名、属性数组和当前父节点。
+      let element = createASTElement(tag, attrs, currentParent);
+      if (ns) {
+        element.ns = ns;
+      }
+
+      if (isForbiddenTag(element) && !isServerRendering()) {
+        //当前元素是禁止的标签，并且不是服务器端渲染 将元素节点标记为禁止，并发出相应的警告信息。
+        element.forbidden = true;
+        process.env.NODE_ENV !== "production" &&
+          warn(
+            "Templates should only be responsible for mapping the state to the " +
+              "UI. Avoid placing tags with side-effects in your templates, such as " +
+              `<${tag}>` +
+              ", as they will not be parsed.",
+            { start: element.start }
+          );
+      }
+
+      // apply pre-transforms 预转换可能会对元素节点进行一些预处理操作。
+      for (let i = 0; i < preTransforms.length; i++) {
+        element = preTransforms[i](element, options) || element;
+      }
+
+      //是否在 v-pre 区域内
+      if (!inVPre) {
+        //不在，则调用 processPre 函数处理 v-pre 指令
+        processPre(element);
+        if (element.pre) {
+          //根据元素节点的 pre 属性设置全局变量 inVPre 为 true。
+          inVPre = true;
+        }
+      }
+
+      if (platformIsPreTag(element.tag)) {
+        //当前元素是 <pre> 标签，则将全局变量 inPre 设置为 true
+        inPre = true;
+      }
+
+      if (inVPre) {
+        //在 v-pre 区域内，则调用 processRawAttrs 函数处理元素节点的原始属性。
+        processRawAttrs(element);
+      } else if (!element.processed) {
+        //元素节点尚未被处理过（!element.processed），则处理结构指令
+        //（如 v-for、v-if、v-once 等）。
+        processFor(element);
+        processIf(element);
+        processOnce(element);
+      }
+
+      if (!root) {
+        root = element;
+        if (process.env.NODE_ENV !== "production") {
+          checkRootConstraints(root);
+        }
+      }
+
+      //管理当前元素的父子关系和栈的变化
+      if (!unary) {
+        //是否为非自闭合标签
+        //当前标签不是自闭合标签，需要在处理结束标签时将其作为当前父节点
+        currentParent = element;
+        stack.push(element);
+      } else {
+        //当前元素是自闭合标签（即 unary 为 true）
+        //调用 closeElement 函数关闭当前元素
+        //自闭合标签不会有子节点，因此无需设置当前父节点，也不需要入栈
+        closeElement(element);
+      }
+    },
+
+    //处理结束标签的函数之一
+    //主要负责在解析结束标签时完成一些清理工作，并调用 closeElement 函数来关闭当前元素节点。
+    end(tag, start, end) {
+      //获取栈顶元素
+      const element = stack[stack.length - 1];
+      //栈顶元素从 stack 数组中弹出，相当于出栈操作。
+      //使用 stack.length -= 1 而不是 stack.pop()
+      //在某些情况下，直接操作数组的 length 属性会比调用 pop() 方法更高效。
+      stack.length -= 1;
+
+      //当前父节点更新为栈中的新栈顶元素，即当前处理元素的父元素。
+      currentParent = stack[stack.length - 1];
+      if (process.env.NODE_ENV !== "production" && options.outputSourceRange) {
+        element.end = end;
+      }
+      //closeElement 函数主要用于处理元素节点的收尾工作，比如执行后处理器和检查元素约束等。
+      closeElement(element);
+    },
+
+    //处理文本节点的函数;它主要负责将文本内容解析并添加到当前父节点的子节点列表中。
+    chars(text, start, end) {
+      //检查是否存在当前父节点
+      if (!currentParent) {
+        //没有当前父节点，则表示文本节点位于根节点之外，需要发出警告或忽略这些文本内容。
+        if (process.env.NODE_ENV !== "production") {
+          if (text === template) {
+            //根节点是文本节点，发出警告
+            //例如： <template>Hello Vue</template>
+            warnOnce(
+              "Component template requires a root element, rather than just text.",
+              { start }
+            );
+          } else if ((text = text.trim())) {
+            //文本节点游离在根节点之外
+            /**
+             * 例如：
+             * <template>
+             *  <div>Hello vue!</div>
+             *  游离在根节点之外的文本节点
+             * </template>
+             */
+            warnOnce(`text "${text}" outside root element will be ignored.`, {
+              start,
+            });
+          }
+        }
+        return;
+      }
+
+      //源码这里是处理了ie的bug  IE文本区占位符错误
+
+      //处理文本内容：
+      const children = currentParent.children;
+      if (inPre || text.trim()) {
+        //是否处于 <pre> 标签内，去除空白
+
+        //文本节点不做处理，不是文本节点则解码 HTML 实体
+        text = isTextTag(currentParent) ? text : decodeHTMLCached(text);
+      } else if (!children.length) {
+        //删除纯空白节点
+        text = "";
+      } else if (whitespaceOption) {
+        //配置的空白选项 (whitespaceOption)，决定是否需要处理文本内容中的空白字符。
+        //可选的处理方式包括：保留空白字符、压缩连续的空白字符、移除空白字符等。
+        if (whitespaceOption === "condense") {
+          //在压缩模式下，删除空白节点，如果它包含换行，否则压缩成一个空格
+          text = lineBreakRE.test(text) ? "" : " ";
+        } else {
+          text = " ";
+        }
+      } else {
+        text = preserveWhitespace ? " " : "";
+      }
+
+      if (text) {
+        if (!inPre && whitespaceOption === "condense") {
+          //不在<pre> 标签内
+          // 将连续的空格压缩成单个空格
+          text = text.replace(whitespaceRE, " ");
+        }
+        let res;
+        let child;
+        if (!inVPre && text !== " " && (res = parseText(text, delimiters))) {
+          //如果文本内容包含插值表达式，则生成类型为 2 的 AST 节点
+          //ast 节点生成  词法分析，生成tokens 表达式
+          child = {
+            type: 2,
+            expression: res.expression,
+            tokens: res.tokens,
+            text,
+          };
+        }
+      }
+    },
+
+    comment(text, start, end) {
+      //在解析模板时处理注释节点。注释节点不会影响模板的解析结果，
+      //但会被添加到 AST（抽象语法树）的父节点的子节点列表中，主要用于保留源代码中的注释信息。
+
+      //禁止向根节点添加任何兄弟节点
+      if (currentParent) {
+        //如果 currentParent 存在，表示注释可以作为当前节点的子节点进行处理。
+        const child = {
+          type: 3, //表示这是一个文本类型节点。
+          text, //注释的文本内容。
+          isComment: true, //，表示这是一个注释节点。
+        };
+        currentParent.children.push(child);
+      }
+      //这种处理方式确保了模板解析过程中，注释信息不会影响实际的元素树结构，
+      //但可以保留在 AST 中以供后续处理或调试使用。
+    },
+  });
+
+  return root;
 }
 
 /**
