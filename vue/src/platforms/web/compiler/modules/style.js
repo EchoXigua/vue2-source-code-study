@@ -1,4 +1,4 @@
-import { parseStyleText } from "@/web/util/style";
+import { parseStyleText } from "@/platforms/web/util/style";
 import { getAndRemoveAttr, getBindingAttr, baseWarn } from "@/compiler/helpers";
 //在解析模板时处理元素的 style 属性，确保静态样式和绑定样式正确地被解析和处理。
 function transformNode(el, options) {

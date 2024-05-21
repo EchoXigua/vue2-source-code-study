@@ -109,6 +109,11 @@ export function addAttr(el, name, value, range, dynamic) {
   el.plain = false;
 }
 
+export function addRawAttr(el, name, value, range) {
+  el.attrsMap[name] = value;
+  el.attrsList.push(rangeSetItem({ name, value }, range));
+}
+
 /**
  *  得到和移除属性
  *
