@@ -16,6 +16,10 @@ import {
   getAndRemoveAttrByRegex,
 } from "../helpers";
 
+export const dirRE = process.env.VBIND_PROP_SHORTHAND
+  ? /^v-|^@|^:|^\.|^#/
+  : /^v-|^@|^:|^#/;
+
 //回车\r 换行\n 正则
 const lineBreakRE = /[\r\n]/;
 

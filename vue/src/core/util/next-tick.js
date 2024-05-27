@@ -85,7 +85,7 @@ if (typeof Promise !== "undefined" && isNative(Promise)) {
     //通过设置一个空的 setTimeout 来强制刷新微任务队列。
     if (isIOS) setTimeout(noop);
   };
-  isUsingMicroTask = TRUE;
+  isUsingMicroTask = true;
 } else if (
   !isIE &&
   typeof MutationObserver !== "undefined" &&

@@ -1,6 +1,5 @@
 ## 1. 实现 vue2 的主要功能
 
-- new Vue 发生了什么
 - 模板编译
 - 响应式系统
 - 事件处理
@@ -9,6 +8,1204 @@
 
 
 ### 1. 响应式系统
+
+参考 [Vue.js 技术揭秘](https://ustbhuangyi.github.io/vue-analysis/v2/reactive/reactive-object.html#object-defineproperty)
+
+#### 1.响应式对象
+
+> 在 vue 的初始化阶段，_init 方法中会执行 initState(vm) 方法，定义 src/core/instance/state.js
+
+```js
+export function initState (vm: Component) {
+  vm._watchers = []
+  const opts = vm.$options
+  if (opts.props) initProps(vm, opts.props)
+  if (opts.methods) initMethods(vm, opts.methods)
+  if (opts.data) {
+    initData(vm)
+  } else {
+    observe(vm._data = {}, true /* asRootData */)
+  }
+  if (opts.computed) initComputed(vm, opts.computed)
+  if (opts.watch && opts.watch !== nativeWatch) {
+    initWatch(vm, opts.watch)
+  }
+}
+```
+
+
+
+initState 主要对 props、methods、data、computed、wathcer 做了初始化操作。这里主要讲props和data
+
+
+
++ initProps
+
+```js
+/**
+ * 主要作用是初始化组件的 props，并使其成为组件实例的响应式属性，
+ * 以便在组件中能够对 props 进行读取和修改。
+ * 
+ * @param {Component} vm 
+ * @param {Object} propsOptions 
+ */
+function initProps (vm, propsOptions) {
+    /**
+     * 例子：
+     *  子组件： props:['value'] or  props: { value: {type: String,default:'默认值'} }
+     *  父组件： <div> <Son value="父组件传递的值"></Son> </div>
+     * propsOptions 是子组件内部写的 props 属性 
+     * vm.$options.propsData是传入组件的props数据
+     */
+
+    //propsData 用于存储传递给组件的 props 数据
+    const propsData = vm.$options.propsData || {}
+    //props 用于存储组件实例的 props 数据。
+    const props = vm._props = {}
+    // 缓存 props key， 以便将来的 props 更新可以使用Array进行迭代而不是动态对象键枚举。
+    const keys = vm.$options._propKeys = []
+
+    //当前实例是否是根（有无父组件）
+    const isRoot = !vm.$parent
+    //根实例props 应该被转换
+    if (!isRoot) {
+        //函数用于在非根组件中关闭响应式监听，以提高性能。
+        //在遍历 props 时，先关闭响应式监听，等遍历结束后再打开。
+
+        //在组件实例化过程中，如果 props 的初始化过程中引起了更新，
+        //那么这个更新可能会在组件初始化完成之前发生。
+        //这种情况下，由于组件尚未完全初始化，触发的更新可能会导致一些不必要的副作用或者性能问题。
+        //为了避免这种情况，我们可以在初始化 props 之前临时关闭响应式监听，
+        //待 props 初始化完成后，再重新开启响应式监听。
+        //这样就可以确保在组件初始化过程中不会因为 props 的初始化而触发不必要的更新。
+        toggleObserving(false)
+    }
+
+    //遍历propsOptions
+    for (const key in propsOptions) {
+        keys.push(key)
+        // validateProp 函数用于验证组件实例的props是否符合预期
+        // 会根据开发者编写的type 来做校验并给出相应的警告
+        const value = validateProp(key, propsOptions, propsData, vm)
+        /* 省略非生产环境代码 */
+    
+        //把key 和 value 变成响应式属性
+        defineReactive(props, key, value)
+
+        // 静态 props 已经在Vue.extend() 期间被代理到组件的原型上了
+        // 我们只需要在实例化时 代理定义的props
+
+        //这段代码的作用是将组件实例上的 props 属性代理到 _props 对象上，
+        //以便在组件内部可以通过 this.key 直接访问 props 数据。
+        if (!(key in vm)) {
+            //key in vm 检查组件实例 vm 上是否已经存在了当前循环的 props 键 key。
+            //如果存在，说明这个 props 已经在组件实例上定义了，就不需要再次代理。
+
+            //proxy 函数的作用是将对象上的属性代理到另一个对象上。
+            //在这里，它的作用是将组件实例上的 props 属性代理到 _props 对象上。
+
+            /**
+             * 思考题： 为什么要这样做，要代理到_props对象上呢？
+             * 
+             * 在 Vue 组件中，当你声明了一个 prop，Vue 会将这个 prop 的值存储在组件实例上，
+             * 并且将其作为组件实例的一个属性。通常情况下，你可以通过 this.propName 的方式在组件内部访问这个 prop 的值。
+             * 
+             * 然而，在内部实现中，Vue 为了更好地管理和控制组件实例的属性，有时会对这些属性进行处理。
+             * 在这种情况下，为了避免直接将 prop 作为组件实例的属性而导致一些潜在的问题，
+             * Vue 会将 prop 的值代理到一个内部对象上。
+             * 这个内部对象通常被称为 _props，并且将 prop 的值存储在这个对象上。
+             */
+            proxy(vm, `_props`, key)
+        }
+    }
+    //最后，打开响应式监听，以便在组件实例化过程中再次开启响应式监听。
+    toggleObserving(true)
+}
+```
+
+
+
+props 的初始化流程就是遍历定义的 props 配置。在遍历过程中一是调用 defineReactive 方法把每个prop 对应的值变成响应式，可以通过 `vm._props.xx` 访问到；另一个是通过 proxy 把 `vm._props.xx` 代理到vm.xx，这样直接就可以this.xx 获取到了
+
+
+
++ initData
+
+```js
+/**
+ * 用于初始化组件中的数据的函数。
+ * 
+ * @param {Component} vm 
+ */
+function initData (vm) {
+    //获取组件配置中的 data 选项
+    let data = vm.$options.data
+
+    //如果 data 是一个函数，则调用 getData 函数获取函数返回的数据；
+    //否则，如果 data 不存在或者不是一个对象，则将其置为空对象 {}。
+    data = vm._data = typeof data === 'function'
+      ? getData(data, vm)
+      : data || {}
+
+      //在一些开发环境下的警告中，会提醒开发者应该将 data 函数返回一个对象。
+    if (!isPlainObject(data)) {
+      data = {}
+      process.env.NODE_ENV !== 'production' && warn(
+        'data functions should return an object:\n' +
+        'https://vuejs.org/v2/guide/components.html#data-Must-Be-a-Function',
+        vm
+      )
+    }
+
+
+    const keys = Object.keys(data)
+
+    const props = vm.$options.props //data 对比props 开发环境发出警告
+    const methods = vm.$options.methods //data 对比methods 开发环境发出警告
+
+    let i = keys.length
+
+    //遍历 data 对象中的每一个属性，并进行一系列的检查：
+    while (i--) {
+        const key = keys[i]
+        if (process.env.NODE_ENV !== 'production') {
+            /**
+             *  如果该属性已经被定义为组件的方法，则发出警告。
+                如果该属性已经被定义为组件的 prop，则发出警告。
+            */
+            if (methods && hasOwn(methods, key)) {
+                warn(
+                    `Method "${key}" has already been defined as a data property.`,
+                    vm
+                )
+            }
+        }
+        if (props && hasOwn(props, key)) {
+            process.env.NODE_ENV !== 'production' && warn(
+              `The data property "${key}" is already declared as a prop. ` +
+              `Use prop default value instead.`,
+              vm
+            )
+        } else if (!isReserved(key)) {
+            //如果属性名不是以 _ 或 $ 开头（即不是保留属性），则通过 proxy 函数将属性代理到组件实例上。
+            proxy(vm, `_data`, key)
+        }
+    }
+
+    //调用 observe 函数观察数据对象 data，并传入 true 作为第二个参数 asRootData，表示这是根数据。
+    observe(data, true /* asRootData */)
+}
+```
+
+data 的初始化也是做两件事：
+
+1. 遍历data函数返回的对象，通过 proxy 把每个值（vm._data.xx）都代理到 vm.xx 上
+2. 调用 observe 方法观察整个 data 的变化，(Observer 这个类会)把data 也变成响应式
+
+
+
++ observe
+
+`observe` 的功能就是用来监测数据的变化，它的定义在 `src/core/observer/index.js` 中：
+
+```js
+/**
+ * 用于观察数据对象并返回相应的观察者对象。
+ * 
+ * @param {any} value 
+ * @param {?boolean} asRootData 
+ * @returns {Observer | void }
+ */
+export function observe (value, asRootData) {
+    if (!isObject(value) || value instanceof VNode) {
+        //如果不是一个对象 或者不是虚拟节点 VNode，直接返回
+      return
+    }
+    let ob
+    if (hasOwn(value, '__ob__') && value.__ob__ instanceof Observer) {
+        //如果 value 对象已经具有 __ob__ 属性，并且该属性的值是 Observer 类的实例
+        //则将 __ob__ 属性的值赋给变量 ob。这是为了避免重复创建观察者对象。
+      ob = value.__ob__
+    } else if (
+      shouldObserve && //当前环境支持观察
+      // !isServerRendering() && //不是服务端渲染；
+      (Array.isArray(value) || isPlainObject(value)) && //value 是数组或纯对象；
+      Object.isExtensible(value) && //value 是可扩展的对象；
+      !value._isVue //value 不是 Vue 实例；
+    ) {
+        //那么就创建一个新的观察者对象 ob，
+      ob = new Observer(value)
+    }
+    if (asRootData && ob) {
+        //asRootData 参数表示这个数据作为根数据，用于在计算属性的计算过程中统计观察者对象的数量
+      ob.vmCount++
+    }
+    return ob
+}
+```
+
+observe 方法的作用就是给非 VNode 的对象添加一个 Observer，如果已经添加则直接返回，否则在满足一定条件下去实例化一个 Observer 对象实例。
+
+
+
+Observer 是一个类，它的作用是给对象的属性添加 getter 和 setter，用于依赖收集和派发更新：
+
+```js
+/**
+ * 用于观察给定的对象，并在需要时将其属性转换为响应式属性
+ */
+export class Observer {
+    value //保存被观察的对象。
+    dep //一个 Dep 类的实例，用于依赖收集;
+    vmCount //记录将该对象作为根数据的 Vue 实例的数量
+  
+    constructor (value) {
+      this.value = value
+      this.dep = new Dep()
+      this.vmCount = 0
+      def(value, '__ob__', this)
+      if (Array.isArray(value)) {
+        //如果 value 是数组类型，则进行特殊处理：
+        if (hasProto) {
+            //如果浏览器环境支持原型继承，则使用 protoAugment 方法将 value 的原型设置为arrayMethods 
+            protoAugment(value, arrayMethods)
+        } else {
+            //否则使用 copyAugment 方法将 value 的数组方法复制到 value 上
+            //并对数组中的每一项调用 observe 方法观察。
+            copyAugment(value, arrayMethods, arrayKeys)
+        }
+        this.observeArray(value)
+      } else {
+        //不是数组则调用 walk 方法遍历 value 对象的所有属性
+        //会将所有的属性转换为响应式属性
+        this.walk(value)
+      }
+    }
+  
+    /**
+     * 遍历所有属性并将它们转换为getter/setter。此方法只应在值类型为Object时调用。
+     */
+    walk (obj) {
+      const keys = Object.keys(obj)
+      for (let i = 0; i < keys.length; i++) {
+        defineReactive(obj, keys[i])
+      }
+    }
+  
+    /**
+     * 接收一个数组参数 items，遍历数组中的每一项，并对每一项调用 observe 方法观察。
+     */
+    observeArray (items) {
+      for (let i = 0, l = items.length; i < l; i++) {
+        observe(items[i])
+      }
+    }
+  }
+```
+
+Observer 的构造函数执行逻辑很简单，首先会实例化 Dep 对象，然后通过 def 把自身实例添加到对象value 的 `__ob__` 属性上。接下来会对value做判断，如果是数组会调用 `observeArray` 方法，如果是对象调用 `walk` 方法。
+
+
+
+这里讲一下 defineReactive 的主要流程：源码在 src/core/instance/observer/index.js
+
+1. 初始化Dep 对象实例，用于收集依赖
+2. 对子对象调用 observe 方法
+   1. observe 方法会去检查对象身上是否有`__ob__` 属性，且是否为Observer 实例
+   2. 如果有，直接返回 ob 属性，没有的话会去通过 Observer 类去创建一个
+   3. 此时new Observer 会通过 walk 给每个属性调用 defineReactive ，这里我们可以发现产生了递归。这样保证了无论 obj 的属性多么复杂，都会给所有的子属性变成响应式，这样修改 obj 中一个嵌套很深的属性，也能触发getter 和 setter。
+3. 给每个属性添加，getter 和 setter，getter相关的逻辑就是收集依赖，setter 则是通过更新。
+
+
+
+#### 2.依赖收集
+
++ Dep
+
+```js
+export default class Dep {
+    //在依赖收集过程中，会将当前 Watcher 赋值给 Dep.target，以便在属性被访问时收集依赖。
+    static target //静态属性，表示当前正在计算的 Watcher 对象。
+    id //表示每个 Dep 实例的唯一标识符，通过 uid++ 自增来生成。;
+    subs // 保存订阅当前 Dep 对象的所有 Watcher 对象的数组
+
+    constructor () {
+        this.id = uid++
+        this.subs = []
+    }
+    
+    //接收一个 Watcher 对象 sub，将其添加到 subs 数组中，
+    //表示该 Watcher 订阅了当前 Dep 对象。
+    addSub (sub) {
+        this.subs.push(sub)
+    }
+    
+    //接收一个 Watcher 对象 sub，从 subs 数组中移除该 Watcher 对象，
+    //表示该 Watcher 取消了对当前 Dep 对象的订阅。
+    removeSub (sub) {
+        remove(this.subs, sub)
+    }
+    
+    //在依赖收集过程中调用，用于将 Dep.target 添加到当前 Dep 对象的订阅者列表中。
+    depend () {
+        if (Dep.target) {
+            Dep.target.addDep(this)
+        }
+    }
+    
+    //用于通知所有订阅者（即 Watcher 对象）进行更新。
+    notify () {
+        //首先复制一份订阅者列表
+        const subs = this.subs.slice()
+        if (process.env.NODE_ENV !== 'production' && !config.async) {
+            //根据当前环境是否为异步模式进行排序
+            subs.sort((a, b) => a.id - b.id)
+        }
+        for (let i = 0, l = subs.length; i < l; i++) {
+            subs[i].update()
+        }
+    }
+}
+
+/**
+ * 这段代码是关于管理当前目标 Watcher 的功能
+ * 在 Vue 中，每个时刻只能有一个 Watcher 被计算，因此需要一种机制来管理当前正在计算的 Watcher。
+ *  
+ * Vue3的做法和这里是一样的，也是全局只有一个
+ * 
+ *  
+ * 使用了一个全局变量 Dep.target 来表示当前正在计算的 Watcher，
+ * 同时利用一个栈 targetStack 来保存 Watcher。
+ */
+
+//初始化 Dep.target 为 null，表示当前没有正在计算的 Watcher。
+Dep.target = null
+
+//定义一个空数组 targetStack，用于保存 Watcher。
+const targetStack = []
+
+
+/**
+ * 接收一个 Watcher 对象 target，将其压入 targetStack 栈中，
+ * 并将 Dep.target 设置为当前 Watcher 对象。
+ * 
+ * @param {Watcher} target 
+ */
+export function pushTarget (target) {
+    targetStack.push(target)
+    Dep.target = target
+}
+
+/**
+ * 从 targetStack 栈中弹出一个 Watcher 对象
+ * 并将 Dep.target 设置为栈顶的 Watcher 对象，即上一个 Watcher 对象。
+ */
+export function popTarget () {
+    targetStack.pop()
+    Dep.target = targetStack[targetStack.length - 1]
+}
+```
+
+
+
+每个对象值的 getter 都持有一个 dep，在触发 getter 的时候会调用 dep.depend() 方法，也就是会执行 Dep.target.addDep(this)。Dep.target 用来存储watcher，在同一时间全局唯一只有一个，这样就可以将watcher 和 Dep 关联起来，Dep 实际上就是对 wathcer 的一种管理。
+
+
+
++ watcher
+
+```js
+let uid = 0
+
+//用于在 Vue.js 中跟踪数据的变化并执行相应的回调函数。
+export default class Watcher {
+    vm //Component  表示 Watcher 所关联的 Vue 实例;
+    expression  //string 表示 Watcher 关联的表达式，通常是一个字符串，用于指定要观察的数据路径
+    cb //Function  表示 Watcher 的回调函数，在数据变化时会被调用;
+    id //number 表示 Watcher 的唯一标识符;
+    deep //boolean  表示是否要深度观察数据的变化;
+    user //boolean  表示是否是用户创建的 Watcher;
+    lazy //boolean  表示是否是惰性求值的 Watcher;
+    sync //boolean 表示是否同步执行回调函数;
+    dirty //boolean 表示是否是脏的(即值是否已经过期，需要重新计算);
+    active //boolean 表示 Watcher 是否是激活状态。;
+    deps //Array<Dep> 表示 Watcher 当前依赖的所有 Dep 对象的数组 ;
+    newDeps //Array<Dep>   表示 Watcher 新增的依赖的 Dep 对象的数组;
+    depIds //SimpleSet     表示 Watcher 当前依赖的所有 Dep 对象的 id 的集合;
+    newDepIds //SimpleSet  表示 Watcher 新增的依赖的 Dep 对象的 id 的集合。;
+    before //?Function 表示在执行回调函数之前要执行的函数;
+    getter //Function  表示 Watcher 的求值函数，用于获取被观察数据的值;
+    value //any   表示 Watcher 所观察的数据的当前值;
+
+
+    /**
+     * 它接受一些参数来初始化 Watcher 实例
+     * 
+     * @param {Component} vm 
+     * 
+     * 如果是函数，它会被用作 Watcher 的求值函数，如果是字符串，它会被解析成一个求值函数。
+     * @param {string | Function} expOrFn Watcher 关联的表达式或者函数
+     * @param {Function} cb  Watcher 的回调函数，在数据变化时会被调用。
+     * @param {?Object} options 
+     * @param {?boolean} isRenderWatcher 是否是渲染 Watcher
+     */
+    constructor (
+        vm,
+        expOrFn,
+        cb,
+        options,
+        isRenderWatcher 
+      ) {
+        this.vm = vm
+        if (isRenderWatcher) {
+            //如果是渲染 Watcher，会将当前 Watcher 实例赋值给 Vue 实例的 _watcher 属性，
+          vm._watcher = this
+        }
+
+        //将 Watcher 实例添加到 Vue 实例的 _watchers 数组中。
+        vm._watchers.push(this)
+        // options
+        if (options) {
+            //可以包括深度观察、是否是用户创建的 Watcher、是否是惰性求值的 Watcher、是否同步执行回调函数等选项。
+          this.deep = !!options.deep
+          this.user = !!options.user
+          this.lazy = !!options.lazy
+          this.sync = !!options.sync
+          this.before = options.before
+        } else {
+          this.deep = this.user = this.lazy = this.sync = false
+        }
+        this.cb = cb
+
+        //初始化 Watcher 的一些属性，比如唯一标识符、激活状态、脏状态等。
+        this.id = ++uid // uid for batching
+        this.active = true
+        this.dirty = this.lazy // for lazy watchers
+        this.deps = []
+        this.newDeps = []
+
+        //vue源码处理了低版本浏览器中没有Set 函数，做了polyfill，这里直接使用浏览器的Set
+        this.depIds = new Set()  
+        this.newDepIds = new Set()
+        this.expression = process.env.NODE_ENV !== 'production'
+          ? expOrFn.toString()
+          : ''
+
+        //根据传入的 expOrFn 参数
+        if (typeof expOrFn === 'function') {
+            //如果是函数赋值给 Watcher 的 getter 属性
+          this.getter = expOrFn
+        } else {
+            //如果 expOrFn 是字符串而不是函数，则尝试解析字符串成一个求值函数。
+          this.getter = parsePath(expOrFn)
+          if (!this.getter) {
+            //如果解析失败，则使用一个空函数，并给出相应的警告信息。
+            this.getter = noop
+            process.env.NODE_ENV !== 'production' && warn(
+              `Failed watching path: "${expOrFn}" ` +
+              'Watcher only accepts simple dot-delimited paths. ' +
+              'For full control, use a function instead.',
+              vm
+            )
+          }
+        }
+
+        //如果 Watcher 是惰性求值的，不会立即求值，而是等到需要时再求值；
+        //否则，会立即求值并将结果赋值给 Watcher 的 value 属性。
+        this.value = this.lazy
+          ? undefined
+          : this.get()
+    }
+
+    //用于获取被观察数据的值。
+    get() {
+        //调用 pushTarget(this) 将当前 Watcher 实例推入目标栈中，
+        //表示当前正在对该 Watcher 进行求值操作。
+        pushTarget(this)
+
+        //定义一个变量 value 来存储被观察数据的值。
+        let value
+
+        //拿到watcher 关联的组件实例
+        const vm = this.vm
+
+        try {
+            //尝试调用getter  call(vm, vm)是为了确保在求值函数内部能够正确访问 Vue 实例的上下文。
+          value = this.getter.call(vm, vm)
+        } catch (e) {
+            //如果求值过程中发生了异常
+          if (this.user) {
+            //如果是用户创建的 Watcher，则会调用 handleError() 处理异常
+            handleError(e, vm, `getter for watcher "${this.expression}"`)
+          } else {
+            //否则，直接抛出异常
+            throw e
+          }
+        } finally {
+            //进行一些清理工作：
+          // "touch" every property so they are all tracked as
+          // dependencies for deep watching
+
+          //如果 Watcher 需要进行深度观察（this.deep 为 true）
+          if (this.deep) {
+            //调用 traverse(value)，对获取到的值进行深度遍历，以确保所有属性都被正确地追踪为依赖。
+            traverse(value)
+          }
+
+          //调用 popTarget() 将之前推入目标栈的 Watcher 实例弹出。
+          popTarget()
+
+          //清理 Watcher 实例的依赖关系。
+          this.cleanupDeps()
+        }
+        return value
+    }
+
+    //这个方法的作用是在依赖收集过程中清理不再需要的依赖，
+    //保持 Watcher 实例的依赖关系与 Dep 对象的订阅关系保持一致。
+    cleanupDeps () {
+        let i = this.deps.length
+        //遍历 Watcher 实例的 deps 数组，这个数组存储了 Watcher 的所有依赖的 Dep 对象。
+        while (i--) {
+          const dep = this.deps[i]
+          if (!this.newDepIds.has(dep.id)) {
+            //如果依赖对象的 id 不在 Watcher 的 newDepIds 中（即该 Dep 对象不再是 Watcher 的新依赖）
+            //则从该 Dep 对象的订阅者列表中移除当前 Watcher。
+            dep.removeSub(this)
+          }
+        }
+
+        let tmp = this.depIds
+        //将 Watcher 的 depIds 属性设置为 newDepIds，并清空 newDepIds。
+        this.depIds = this.newDepIds
+        this.newDepIds = tmp
+        this.newDepIds.clear()
+
+        tmp = this.deps
+        //将 Watcher 的 deps 数组设置为 newDeps，并清空 newDeps。
+        this.deps = this.newDeps
+        this.newDeps = tmp
+        //确保 newDeps 数组的长度为 0，以完成清理工作。
+        this.newDeps.length = 0
+    }
+
+    //用于向 Watcher 实例添加一个依赖关系.
+    //通过这个方法，Watcher 可以追踪到它所依赖的所有 Dep 对象，
+    //并与这些 Dep 对象建立订阅关系，以便在 Dep 对象的状态发生变化时能够及时地通知到 Watcher。
+    addDep (dep) {
+        const id = dep.id
+
+        //保证同一数据不会被添加多次
+        if (!this.newDepIds.has(id)) {
+            //如果该依赖对象的 id 不在 Watcher 的 newDepIds 集合中，说明这是 Watcher 的一个新依赖，
+            
+            //将其 id 添加到 newDepIds 集合中
+            this.newDepIds.add(id)
+            //将该依赖对象添加到 Watcher 的 newDeps 数组中。
+            this.newDeps.push(dep)
+            if (!this.depIds.has(id)) {
+                //如果该依赖对象的 id 不在 Watcher 的 depIds 集合中，说明该依赖对象之前没有被 Watcher 添加为依赖，
+                //因此需要将 Watcher 添加到该依赖对象的订阅者列表中。
+                dep.addSub(this)
+            }
+        }
+    }
+
+
+    /**
+     * 用于在依赖发生变化时触发 Watcher 的更新操作
+     * 
+     * 通过这个方法，Watcher 可以在依赖发生变化时得到通知，
+     * 并根据自身的属性决定是立即执行更新操作，还是延迟到下一个事件循环周期中执行更新操作。
+     */
+    update () {
+        /* istanbul ignore else */
+        if (this.lazy) {
+            //如果 Watcher 是惰性求值的
+            //将 Watcher 的 dirty 属性设置为 true，表示 Watcher 的值已过期，需要重新计算。
+            this.dirty = true
+        } else if (this.sync) {
+            //如果 Watcher 是同步执行的，则直接调用 Watcher 的 run() 方法进行更新操作。
+            this.run()
+        } else {
+            //如果 Watcher 不是同步执行的，则调用 queueWatcher(this) 将 Watcher 推入更新队列中，
+            //等待下一个事件循环周期时进行更新操作。
+            queueWatcher(this)
+        }
+    }
+
+    /**
+     * Scheduler job interface.
+     * Will be called by the scheduler.
+     * 用于执行 Watcher 的更新任务。
+     */
+    run () {
+        //检查 Watcher 实例的 active 属性。如果 Watcher 不是激活状态，则不执行更新任务。
+        if (this.active) {
+            const value = this.get()
+            if (
+                value !== this.value ||
+                //检查获取到的新值 value 是否与 Watcher 的旧值 this.value 不同
+
+                //即使值相同，对象/数组上的深度观察者和观察者也应该被触发，因为值可能已经发生了变化
+                isObject(value) ||
+                //或者 Watcher 需要进行深度观察
+                this.deep
+            ) {
+                //保存旧值
+                const oldValue = this.value
+                //设置新值
+                this.value = value
+
+                if (this.user) {
+                    //如果是用户创建的则会进行"兜底处理" 处理异常
+                    try {
+                        this.cb.call(this.vm, value, oldValue)
+                    } catch (e) {
+                        handleError(e, this.vm, `callback for watcher "${this.expression}"`)
+                    }
+                } else {
+                    this.cb.call(this.vm, value, oldValue)
+                }
+            }
+        }
+    }
+
+   
+  //用于评估 Watcher 的值。这个方法只会在惰性求值的 Watcher 中被调用。
+  evaluate () {
+    this.value = this.get()
+
+    //将 Watcher 的 dirty 属性设置为 false，表示 Watcher 的值已经被更新。
+    this.dirty = false
+  }
+
+  /**
+   * 用于建立 Watcher 和它所依赖的所有 Dep 对象之间的依赖关系。
+   */
+  depend () {
+    let i = this.deps.length
+    //遍历 Watcher 的 deps 数组，数组存储了 Watcher 所依赖的所有 Dep 对象。
+    while (i--) {
+        //对于每个 Dep 对象，调用其 depend() 方法，建立 Watcher 和 Dep 对象之间的依赖关系。
+        this.deps[i].depend()
+    }
+  }
+
+    //
+    /**
+     * 通过这个方法，Watcher 可以安全地将自己从依赖的 Dep 对象和 Vue 实例的 Watcher 列表
+     * 中移除，以避免在组件销毁等情况下引起内存泄漏。
+     */
+    teardown () {
+        if (this.active) {
+          //从vm的监视列表中删除自身这是一个有点昂贵的操作，如果vm被销毁，我们就跳过它。
+          if (!this.vm._isBeingDestroyed) {
+            //如果 Vue 实例不是正在被销毁，则从 Vue 实例的 Watcher 列表（this.vm._watchers）中移除。
+            remove(this.vm._watchers, this)
+          }
+          let i = this.deps.length
+          //遍历 Watcher 的 deps 数组，存储了 Watcher 所依赖的所有 Dep 对象
+          while (i--) {
+            //对于每个 Dep 对象，调用其 removeSub(this) ，将 Watcher 从其订阅者列表中移除。
+            this.deps[i].removeSub(this)
+          }
+
+          // Watcher 的 active 属性设置为 false，表示 Watcher 不再处于激活状态。
+          this.active = false
+        }
+    }
+
+}
+```
+
+
+
++ 过程分析
+
+之前介绍过响应式对象的属性访问时会触发 getter，那么对象什么时候被访问呢？Vue 的mount 过程 通过 mountComponent 函数。
+
+```js
+updateComponent = () => {
+  vm._update(vm._render(), hydrating)
+}
+new Watcher(vm, updateComponent, noop, {
+  before () {
+    if (vm._isMounted) {
+      callHook(vm, 'beforeUpdate')
+    }
+  }
+}, true /* isRenderWatcher */)
+```
+
+当组件挂载的时候，就会去实例化一个watcher，进入 watcher 的构造函数逻辑，执行 this.get() 方法。
+
+1. 首先执行 pushTarget(this)，实际上就是把 Dep.target 赋值为当前渲染的watcher并压栈。
+
+2. 接下来执行 value = this.getter.call(vm, vm)  ，尝试调用getter方法。这个getter 就是new Watcher 传入的 `updateComponent`，实际上就是在执行：
+
+   ```js
+    vm._update(vm._render(), hydrating);
+   ```
+
+   首先会执行 `vm._render()` 方法，这个过程会生成VNode，并且会对vm上的数据访问，触发 getter，每个对象值的getter 都会持有一个 dep，触发getter 的时候 会调用 `dep.depend()` 方法，就会执行 `Dep.target.addDep(this)`，此时的 Dep.target 已经被赋值为渲染Watcher了。
+
+   ```js
+      //用于向 Watcher 实例添加一个依赖关系.
+       //通过这个方法，Watcher 可以追踪到它所依赖的所有 Dep 对象，
+       //并与这些 Dep 对象建立订阅关系，以便在 Dep 对象的状态发生变化时能够及时地通知到 Watcher。
+       addDep (dep) {
+           const id = dep.id
+   
+           //保证同一数据不会被添加多次
+           if (!this.newDepIds.has(id)) {
+               //如果该依赖对象的 id 不在 Watcher 的 newDepIds 集合中，说明这是 Watcher 的一个新依赖，
+               
+               //将其 id 添加到 newDepIds 集合中
+               this.newDepIds.add(id)
+               //将该依赖对象添加到 Watcher 的 newDeps 数组中。
+               this.newDeps.push(dep)
+               if (!this.depIds.has(id)) {
+                   //如果该依赖对象的 id 不在 Watcher 的 depIds 集合中，说明该依赖对象之前没有被 Watcher 添加为依赖，
+                   //因此需要将 Watcher 添加到该依赖对象的订阅者列表中。
+                   dep.addSub(this)
+               }
+           }
+       }
+   ```
+
+   执行  `dep.addSub(this)`，会把当前的watcher 订阅到这个数据持有的 dep 的 subs 中，这个目的是为后续数据变化时候能通知到哪些 subs 做准备。
+
+3. 在 vm.render() 的过程中，会触发所有数据的getter，完成了依赖收集的过程，在此之后还有几个逻辑要执行(finally里面的逻辑)：
+
+   ```js
+           try {
+               //尝试调用getter  call(vm, vm)是为了确保在求值函数内部能够正确访问 Vue 实例的上下文。
+             value = this.getter.call(vm, vm)
+           } catch (e) {
+               //如果求值过程中发生了异常
+             if (this.user) {
+               //如果是用户创建的 Watcher，则会调用 handleError() 处理异常
+               handleError(e, vm, `getter for watcher "${this.expression}"`)
+             } else {
+               //否则，直接抛出异常
+               throw e
+             }
+           } finally {
+               //进行一些清理工作：
+             // "touch" every property so they are all tracked as
+             // dependencies for deep watching
+   
+             //如果 Watcher 需要进行深度观察（this.deep 为 true）
+             if (this.deep) {
+               //调用 traverse(value)，对获取到的值进行深度遍历，以确保所有属性都被正确地追踪为依赖。
+               traverse(value)
+             }
+   
+             //调用 popTarget() 将之前推入目标栈的 Watcher 实例弹出。
+             popTarget()
+   
+             //清理 Watcher 实例的依赖关系。
+             this.cleanupDeps()
+           }
+   ```
+
+   递归去访问value，触发它所有子项的 getter，然后执行`popTarget()`，实际上就是把 `Dep.target` 恢复成上一个状态，因为当前 vm 的数据依赖收集已经完成，那么对应的渲染`Dep.target` 也需要改变。最后执行 `this.cleanupDeps()`，清空依赖。
+
+
+
+vue 是数据驱动的，每次数据变化都会重新 render，那么`vm.render()` 方法又会再次执行，再次触发getter，所以 watcher 在构造函数中会初始化 2个 Dep 实例数组，newDeps 表示新添加的 Dep 实例数组，而deps 表示上一次添加的 Dep 实例数组。
+
+cleanupDeps 的作用是在依赖收集过程中清理不再需要的依赖，保持 Watcher 实例的依赖关系与 Dep 对象的订阅关系保持一致。
+
+> 在执行 `cleanupDeps` 函数的时候，会首先遍历 `deps`，移除对 `dep.subs` 数组中 `Wathcer` 的订阅，然后把 `newDepIds` 和 `depIds` 交换，`newDeps` 和 `deps` 交换，并把 `newDepIds` 和 `newDeps` 清空。
+
+
+
+
+
+#### 3.派发更新
+
+> 上面我们分析了响应式数据依赖收集的过程，收集的目的就是为了当我们修改数据的时候，可以对相关的依赖派发更新。
+
+```js
+    set: function reactiveSetter (newVal) {
+        const value = getter ? getter.call(obj) : val
+        /* eslint-disable no-self-compare */
+        //首先比较新值 newVal 和旧值 value，如果它们相等或都为 NaN，则直接返回。
+        if (newVal === value || (newVal !== newVal && value !== value)) {
+          return
+        }
+
+
+        /* eslint-enable no-self-compare */
+        // if (process.env.NODE_ENV !== 'production' && customSetter) {
+        //   customSetter()
+        // }
+
+        // #7981: for accessor properties without setter
+        // 存在getter 不存在setter 直接返回
+        if (getter && !setter) return
+
+        //如果存在 setter，则调用 setter 设置新值，否则直接将新值赋给 val。
+        if (setter) {
+          setter.call(obj, newVal)
+        } else {
+          val = newVal
+        }
+
+        //shallow 为 false，则重新观察新值并更新 childOb
+        childOb = !shallow && observe(newVal)
+        //调用 dep.notify() 通知依赖项更新。
+        dep.notify()
+      }
+```
+
+setter 的逻辑有2个关键的点：
+
+1.  `childOb = !shallow && observe(newVal)`， 如果 `shallow` 为 false 的情况，会对新设置的值变成一个响应式对象
+2.  `dep.notify()`，通知所有的订阅者，这个是关键
+
+
+
++ 过程分析
+
+当在组件中对响应的数据做了修改，就会触发 setter 的逻辑，最后调用 `dep.notify()` 方法。
+
+```js
+//用于通知所有订阅者（即 Watcher 对象）进行更新。
+notify () {
+    //首先复制一份订阅者列表
+    const subs = this.subs.slice()
+    if (process.env.NODE_ENV !== 'production' && !config.async) {
+        //根据当前环境是否为异步模式进行排序
+        subs.sort((a, b) => a.id - b.id)
+    }
+    for (let i = 0, l = subs.length; i < l; i++) {
+        subs[i].update()
+    }
+}
+```
+
+
+
+这里的逻辑很简单，就是遍历所有的 subs，也就是 watcher 的实例数组，调用每个 watcher 的upadte 方法。
+
+```js
+class Watcher {
+  // ...
+    /**
+     * 用于在依赖发生变化时触发 Watcher 的更新操作
+     * 
+     * 通过这个方法，Watcher 可以在依赖发生变化时得到通知，
+     * 并根据自身的属性决定是立即执行更新操作，还是延迟到下一个事件循环周期中执行更新操作。
+     */
+    update () {
+        /* istanbul ignore else */
+        if (this.lazy) {
+            //如果 Watcher 是惰性求值的
+            //将 Watcher 的 dirty 属性设置为 true，表示 Watcher 的值已过期，需要重新计算。
+            this.dirty = true
+        } else if (this.sync) {
+            //如果 Watcher 是同步执行的，则直接调用 Watcher 的 run() 方法进行更新操作。
+            this.run()
+        } else {
+            //如果 Watcher 不是同步执行的，则调用 queueWatcher(this) 将 Watcher 推入更新队列中，
+            //等待下一个事件循环周期时进行更新操作。
+            queueWatcher(this)
+        }
+    }
+}  
+```
+
+
+
+这里引入了队列的概念，也是vue 在做派发更新的一个优化点，异步更新，它不会每次数据改变都触发 watcher 的回调，而是把这些 watcher 添加到一个队列里，在 nextTick 后执行 `flushSchedulerQueue`
+
+```js
+import config from "../config";
+import { warn, nextTick, devtools, inBrowser } from "../util/index";
+
+//定义了最大更新次数，一旦超过了这个次数，
+//就会停止继续更新，以防止出现无限循环更新的情况。
+export const MAX_UPDATE_COUNT = 100;
+
+// Watcher 队列，用于存储待执行的 Watcher。
+const queue = []; //queue: Array<Watcher>
+
+//用于存储 Watcher 的唯一标识符，以便快速判断 Watcher 是否已经在队列中。
+let has = {}; //has : { [key: number]: ?true }
+
+/**
+ * 用于存储 Watcher 的唯一标识符，以及对应的更新次数，用于检测循环更新。
+ *
+ * 当同一个 Watcher 被连续更新超过一定次数时，会认为发生了循环更新，并停止继续更新。
+ * 这个机制能够防止在同一次更新周期内出现 Watcher 之间的循环依赖导致的无限循环更新。
+ */
+let circular = {}; //circular: { [key: number]: number }
+
+//表示当前是否有 Watcher 在等待刷新。
+//只有在没有 Watcher 在等待刷新的情况下才会触发下一次的更新操作，
+//这种机制避免了不必要的更新，提高了更新的效率。
+let waiting = false;
+
+/**
+ * queue 与 flushing：
+ * Watchers 被推入到队列中，并在合适的时机进行刷新。
+ * 这种异步更新机制可以将多个 Watcher 的更新合并成一个更新任务，
+ * 减少了更新的频率，提高了执行的效率。
+ * 而 flushing 变量的存在能够确保在同一时间只有一个更新任务在执行，
+ * 避免了并发更新带来的问题。
+ */
+//表示当前是否正在执行 Watcher 队列的刷新操作。
+let flushing = false;
+//表示当前 Watcher 队列的执行索引，用于控制 Watcher 的执行顺序。
+let index = 0;
+
+function flushSchedulerQueue() {
+  currentFlushTimestamp = getNow();
+  flushing = true;
+  let watcher, id;
+
+  // Sort queue before flush.
+  // This ensures that:
+  // 1. Components are updated from parent to child. (because parent is always
+  //    created before the child)
+  // 2. A component's user watchers are run before its render watcher (because
+  //    user watchers are created before the render watcher)
+  // 3. If a component is destroyed during a parent component's watcher run,
+  //    its watchers can be skipped.
+  queue.sort((a, b) => a.id - b.id);
+
+  // do not cache length because more watchers might be pushed
+  // as we run existing watchers
+  for (index = 0; index < queue.length; index++) {
+    watcher = queue[index];
+    if (watcher.before) {
+      watcher.before();
+    }
+    id = watcher.id;
+    has[id] = null;
+    watcher.run();
+    // in dev build, check and stop circular updates.
+    if (process.env.NODE_ENV !== "production" && has[id] != null) {
+      circular[id] = (circular[id] || 0) + 1;
+      if (circular[id] > MAX_UPDATE_COUNT) {
+        warn(
+          "You may have an infinite update loop " +
+            (watcher.user
+              ? `in watcher with expression "${watcher.expression}"`
+              : `in a component render function.`),
+          watcher.vm
+        );
+        break;
+      }
+    }
+  }
+
+  // keep copies of post queues before resetting state
+  const activatedQueue = activatedChildren.slice();
+  const updatedQueue = queue.slice();
+
+  resetSchedulerState();
+
+  // call component updated and activated hooks
+  callActivatedHooks(activatedQueue);
+  callUpdatedHooks(updatedQueue);
+
+  // devtool hook
+  /* istanbul ignore if */
+  // if (devtools && config.devtools) {
+  //   devtools.emit('flush')
+  // }
+}
+
+//用于将 Watcher 推入 Watcher 队列中
+export function queueWatcher(watcher) {
+  //获取要推入队列的 Watcher 的唯一标识符 id。
+  const id = watcher.id;
+
+  // 检查Watcher 是否已经存在于队列中
+  if (has[id] == null) {
+    //不存在 将其id 设置为true
+    has[id] = true;
+
+    if (!flushing) {
+      //当前不是正在执行队列的刷新操作，则直接将 Watcher 推入队列中。
+      queue.push(watcher);
+    } else {
+      //当前正在执行队列的刷新操作，需要将 Watcher 推入队列的正确位置。
+
+      let i = queue.length - 1;
+      //遍历队列，找到 Watcher 应该插入的位置，确保队列是按照 Watcher 的唯一标识符 id 的顺序排序的
+      while (i > index && queue[i].id > watcher.id) {
+        i--;
+      }
+      queue.splice(i + 1, 0, watcher);
+    }
+
+    // queue the flush
+    if (!waiting) {
+      //没有等待刷新
+      //根据环境配置和异步策略，决定是立即刷新队列还是延迟到下一个事件循环周期中刷新。
+      waiting = true;
+
+      if (process.env.NODE_ENV !== "production" && !config.async) {
+        flushSchedulerQueue();
+        return;
+      }
+      nextTick(flushSchedulerQueue);
+    }
+  }
+}
+```
+
+这里有几个重要的逻辑需要梳理一下：
+
++ 队列排序
+
+  `queue.sort((a, b) => a.id - b.id)` 对队列做了从小到大的排序，这么做主要有以下要确保以下几点：
+
+  1. 组件的更新由父到子；因为父组件的创建过程是先于子的，所以 `watcher` 的创建也是先父后子，执行顺序也应该保持先父后子。
+  2. 用户的自定义 `watcher` 要优先于渲染 `watcher` 执行；因为用户自定义 `watcher` 是在渲染 `watcher` 之前创建的。
+  3. 如果一个组件在父组件的 `watcher` 执行期间被销毁，那么它对应的 `watcher` 执行都可以被跳过，所以父组件的 `watcher` 应该先执行。
+
++ 队列遍历
+
+  在对 `queue` 排序后，接着就是要对它做遍历，拿到对应的 `watcher`，执行 `watcher.run()`。这里需要注意一个细节，在遍历的时候每次都会对 `queue.length` 求值，因为在 `watcher.run()` 的时候，很可能用户会再次添加新的 `watcher`，这样会再次执行到 `queueWatcher`
+
+  ```js
+  export function queueWatcher (watcher: Watcher) {
+    const id = watcher.id
+    if (has[id] == null) {
+      has[id] = true
+      if (!flushing) {
+        queue.push(watcher)
+      } else {
+        let i = queue.length - 1
+        while (i > index && queue[i].id > watcher.id) {
+          i--
+        }
+        queue.splice(i + 1, 0, watcher)
+      }
+      // ...
+    }
+  }
+  ```
+
+  这时候 `flushing` 为 true，就会执行到 else 的逻辑，然后就会从后往前找，找到第一个待插入 `watcher` 的 id 比当前队列中 `watcher` 的 id 大的位置。把 `watcher` 按照 `id`的插入到队列中，因此 `queue` 的长度发生了变化。
+
++ 状态恢复
+
+就是执行 `resetSchedulerState` 函数
+
+```js
+/**
+ * Reset the scheduler's state.
+ */
+function resetSchedulerState () {
+  index = queue.length = activatedChildren.length = 0
+  has = {}
+  if (process.env.NODE_ENV !== 'production') {
+    circular = {}
+  }
+  waiting = flushing = false
+}
+```
+
+逻辑非常简单，就是把这些控制流程状态的一些变量恢复到初始值，把 `watcher` 队列清空。
+
+
+
+接下来分析watcher.run() 的逻辑，run 函数实际上就是执行 `this.getAndInvoke` 方法，并传入 `watcher` 的回调函数。`getAndInvoke` 函数逻辑也很简单，先通过 `this.get()` 得到它当前的值，然后做判断，如果满足新旧值不等、新值是对象类型、`deep` 模式任何一个条件，则执行 `watcher` 的回调。
+
+在执行this.get() 方法的时候，就会去执行 getter 方法，也就是
+
+```js
+updateComponent = () => {
+  vm._update(vm._render(), hydrating)
+}
+```
+
+所以这就是当我们去修改组件相关的响应式数据的时候，会触发组件重新渲染的原因，接着就会重新执行 `patch` 的过程，下面是 `vm._update()` 方法。源码在src/core/instance/lifecycle.js中 lifecycleMixin（Vue）函数，用于在Vue的原型上注入一些方法。
+
+```js
+  Vue.prototype._update = function (vnode, hydrating) {
+    //保存vue 实例
+    const vm = this;
+
+    //保存当前 Vue 实例的 DOM 元素
+    const prevEl = vm.$el;
+    //保存当前 Vue 实例的虚拟节点 方便后续对比和更新
+    const prevVnode = vm._vnode;
+
+    //将当前实例设置为活动实例，并返回一个函数用于恢复之前的活动实例。
+    const restoreActiveInstance = setActiveInstance(vm);
+
+    //将传入的新虚拟节点 vnode 赋值给当前实例的 _vnode 属性，以便后续更新时使用。
+    vm._vnode = vnode;
+    /**
+     * Vue 中，__patch__ 方法是根据所使用的渲染后端（比如浏览器环境下使用的是 web 渲染后端）
+     * 在入口点（如 mount 方法）动态注入的。
+     *  如 web 端 在platforms/web/runtime/index.js 中注入的
+     *
+     * 根据不同的渲染后端，__patch__ 方法的实现可能会有所不同，
+     * 但它们的作用都是将虚拟 DOM 转换为真实 DOM，
+     * 并将其挂载到指定的容器元素上，实现页面的渲染。
+     */
+
+    //vue2的 diff 算法！
+
+    //判断之前是否存在虚拟节点
+    if (!prevVnode) {
+      // initial render
+      //如果不存在，则是初次渲染
+      //调用 vm.__patch__ 方法将 vm.$el 渲染成新的虚拟节点 vnode
+      vm.$el = vm.__patch__(vm.$el, vnode, hydrating, false /* removeOnly */);
+    } else {
+      // 如果存在，则是更新
+      //通过 __patch__ 方法对比之前的虚拟节点和新的虚拟节点。
+      vm.$el = vm.__patch__(prevVnode, vnode);
+    }
+
+    //将当前实例恢复为之前的活动实例。
+    restoreActiveInstance();
+
+    // update __vue__ reference
+
+    if (prevEl) {
+      //如果之前的 DOM 元素存在
+      //将其上的 __vue__ 引用设为 null，解除对旧实例的引用。
+      prevEl.__vue__ = null;
+    }
+
+    if (vm.$el) {
+      //如果更新后的 DOM 元素存在
+      //则将其上的 __vue__ 引用指向当前实例，确保 Vue 实例和 DOM 元素之间的关联。
+      vm.$el.__vue__ = vm;
+    }
+
+    //当前组件实例是高阶组件（Higher Order Component，HOC）时，确保更新其父组件的 $el 属性。
+
+    /**
+     * 在 Vue 中，高阶组件是指接受一个组件作为参数，并返回一个新组件的函数。
+     * 这种组件通常用于提供复用的逻辑、功能或状态管理等。
+     * 在这种情况下，父组件可能是一个 HOC，而当前组件实例则是由这个 HOC 返回的新组件。
+     *
+     * React 中大量使用了HOC，如redux中等
+     */
+    if (vm.$vnode && vm.$parent && vm.$vnode === vm.$parent._vnode) {
+      //通过 vm.$vnode 来判断当前组件是否有父虚拟节点（即是否被包裹在高阶组件中）
+      //检查 vm.$parent 是否存在父组件
+      //并且该父组件的虚拟节点 _vnode 和当前组件的 $vnode 相等。
+
+      //todo 不懂这里的代码
+      vm.$parent.$el = vm.$el;
+    }
+
+    // updated 钩子是由调度器调用的，用于确保在父组件的 updated 钩子中也能正确更新子组件。
+  };
+```
 
 
 
@@ -801,6 +1998,18 @@ effect(() => {
 
 
 
+
+## 5. 思考题（面经）
+
+### 1. new Vue 发生了什么？
+
+
+
+
+
+
+
+### 2. computed 和 watch 的区别
 
 
 

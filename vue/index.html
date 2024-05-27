@@ -12,11 +12,8 @@
     </div>
   </body>
   <script>
-    console.log(1, MyVue);
     new MyVue({
-      template: `
-            <div>123</div>
-        `,
+      el: "#app",
       data: () => {
         return {
           username: "西瓜",
@@ -25,6 +22,6 @@
       beforeCreate() {
         console.log("beforeCreate");
       },
-    }).$mount("#app");
+    });
   </script>
 </html>
